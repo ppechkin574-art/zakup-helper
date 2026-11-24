@@ -193,6 +193,14 @@ button.done{background:var(--goodbg);color:var(--good)}
 .upl:hover{background:var(--line)}
 .gaps{display:flex;gap:10px;background:var(--warnbg);border-radius:12px;padding:10px 12px;margin-top:10px;font-size:13px;line-height:1.45}
 .gaps>.ic{color:var(--warn);width:1.4em;height:1.4em;flex:none}.gaps div div{margin-top:4px}
+.needbox{border:1px solid #FF9F0A;border-radius:12px;margin-bottom:10px;overflow:hidden}
+.needbox.done{border-color:var(--line)}
+.needbox .nh{display:flex;gap:10px;padding:10px 12px;background:var(--warnbg);font-size:13px}.needbox.done .nh{background:var(--goodbg)}
+.needbox .nh>.ic{color:var(--warn);width:1.4em;height:1.4em;flex:none}.needbox.done .nh>.ic{color:var(--good)}
+.needbox .nh .small{color:#3A3A3C;margin-top:2px}.needbox .nh .small .ic{width:1em;height:1em}
+.nrow{display:grid;grid-template-columns:minmax(0,1fr) 120px auto 76px;gap:8px;align-items:center;padding:7px 12px;border-top:1px solid var(--line);font-size:13px}
+.nrow .nn{display:flex;flex-direction:column}.nrow.need .mprice{border-color:#FF9F0A;background:#FFF8EE}
+.nrow .acts{margin:0;justify-content:flex-end}.nrow .acts button{padding:4px 8px}
 .grpline{display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center;background:var(--fill);border-radius:10px;padding:8px 12px;margin:-4px 0 12px;font-size:13px}
 .lot .why{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:var(--mut);margin-top:-4px}
 @media (max-width:900px){body{height:auto}main{grid-template-columns:1fr}#list{max-height:60vh}}
@@ -279,13 +287,14 @@ function compute(l,c){
   c=c||{};const bid=+c.bid||defaultBid(l);
   const qty=+c.qty||l.qty||l.qty_api||1;
   const items=c.items||[];
-  const equip=items.length?items.reduce((a,i)=>a+(+i.cost||0)*(+i.qty||0),0):(+c.unitCost||0)*qty; // закупка (с НДС поставщика)
+  const eqItems=items.filter(i=>!i.work),workSum=items.filter(i=>i.work).reduce((a,i)=>a+(+i.cost||0)*(+i.qty||0),0); // работы из ТЗ — не оборудование
+  const equip=items.length?eqItems.reduce((a,i)=>a+(+i.cost||0)*(+i.qty||0),0):(+c.unitCost||0)*qty; // закупка (с НДС поставщика)
   const cams=c.cams!=null&&c.cams!==''?+c.cams:defaultCams(l,items);
   // ТО: камеры × месяцы × ставка; пока ставка не задана — оценки нет
   const isTO=l.category==='ТО',months=+c.months||0;
   const toCost=isTO&&S.toRate!==''&&cams&&months?cams*months*(+S.toRate):0;
   const labor=c.labor!=null&&c.labor!==''?+c.labor:isTO?toCost:cams*instRate(cams);
-  const other=(+c.materials||0)+labor+(+c.otherCost||0);
+  const other=(+c.materials||0)+labor+(+c.otherCost||0)+workSum;
   const logi=c.logistics!=null&&c.logistics!==''?+c.logistics:equip*S.logistics;
   const supVat=c.supVat!==false;
   let net,tax,revNet,costNet;
@@ -310,15 +319,17 @@ const VLAB={good:'выгодно',warn:'на грани',bad:'невыгодно
 
 // ---------- группы (docs/ECONOMICS.md, «Группы лотов») ----------
 const GROUPS=[['good','Примерно выгодно','check-circle'],['warn','На грани','danger-triangle'],['bad','Примерно не выгодно','close-circle'],['manual','Посмотреть вручную','question-circle']];
+const priced=i=>i.cost!=null&&i.cost!==''&&!isNaN(+i.cost); // цена вписана (0 — тоже ответ: «бесплатно»)
 function lotGroup(l){const f=l.flags||{},r=l._r||compute(l,effCalc(l)),a=l.auto||{};
   if(f.offtopic)return {g:'off',why:'не наш товар: '+(a.reason||'').replace(/^.*типа «(\S+)».*$/,(m,k)=>({'веб':'веб-камеры','ручная':'ручная видеокамера','авто':'автомобильный регистратор'}[k]||k))};
   if(!l.calc){ // ваш ручной расчёт важнее этих правил
     if(f.alarm)return {g:'manual',why:'автоподбор считает только камеры, сигнализацию — вручную'};
     if(l.category==='ТО')return {g:'manual',why:'обслуживание — считается вручную'};
   }
-  const noPrice=((effCalc(l)||{}).items||[]).filter(i=>i.manual&&!(i.cost>0)).length;
-  if(noPrice)return {g:'manual',why:`${noPrice} ${noPrice===1?'строка':noPrice<5?'строки':'строк'} сметы без цены — нет у поставщика, впишите в карточке`};
-  if(!l.calc&&(a.gaps||[]).length&&r.verdict!=='bad')return {g:'manual',why:'в тексте ТЗ есть, в смете нет: '+a.gaps.join(', ')};
+  const noPrice=((effCalc(l)||{}).items||[]).filter(i=>i.manual&&!priced(i)).length;
+  const nStr=`${noPrice} ${noPrice===1?'строка':noPrice<5?'строки':'строк'} сметы без цены`;
+  if(noPrice&&r.verdict!=='bad')return {g:'manual',why:`нужны ваши цены: ${nStr} (нет у поставщика или работы вне ставки) — впишите в карточке`};
+  if(noPrice)return {g:'bad',why:`убыточно уже без ${nStr} — с ними будет ещё хуже`};
   if(!l.calc&&l.install&&r.verdict&&r.margin>(+S.suspectFrom||1))return {g:'manual',why:`подозрительно высокая прибыль ${pct(r.margin)} — проверьте, всё ли из ТЗ в смете`};
   if(r.verdict)return {g:r.verdict};
   if(f.no_docs)return {g:'manual',why:l.system==='SKK'?'ТЗ на портале Самрук-Қазына — скачайте и загрузите в карточке лота':'к лоту нет документов — можно загрузить ТЗ в карточке'};
@@ -408,7 +419,7 @@ async function open(id){
       </div>
       <div class="col"><div class="ch">Тратим <b id="costSum"></b></div>
         <div class="ln"><span><i class="dot" style="background:var(--c-eq)"></i>Оборудование<span class="s" id="eqS"></span></span><span class="ro" id="eqV"></span></div>
-        <div class="ln"><span><i class="dot" style="background:var(--c-lab)"></i>${l.category==='ТО'?'ТО':'Монтаж'}<span class="s" id="labS"></span></span><input type="number" id="c_labor" value="${c.labor??''}" placeholder="авто"></div>
+        <div class="ln"><span title="${esc(l.install_why||'')}"><i class="dot" style="background:var(--c-lab)"></i>${l.category==='ТО'?'ТО':'Монтаж'}<span class="s" id="labS"></span>${l.install&&l.category==='поставка'?`<span class="s t-warn">нужен: ${esc(l.install_why||'')}</span>`:''}</span><input type="number" id="c_labor" value="${c.labor??''}" placeholder="авто"></div>
         <div class="ln"><span><i class="dot" style="background:var(--c-log)"></i>Логистика<span class="s">пусто = ${pct(S.logistics)} от оборудования</span></span><input type="number" id="c_logistics" value="${c.logistics??''}" placeholder="авто"></div>
         <div class="ln"><span><i class="dot" style="background:var(--c-oth)"></i>Материалы<span class="s">кабель, крепёж вне сметы</span></span><input type="number" id="c_materials" value="${c.materials||''}" placeholder="0"></div>
         <div class="ln"><span><i class="dot" style="background:var(--c-oth)"></i>Прочее<span class="s">командировки, проект</span></span><input type="number" id="c_otherCost" value="${c.otherCost||''}" placeholder="0"></div>
@@ -486,11 +497,11 @@ function supRender(list,note){SUP=list;
 async function supSearch(q){if(!q.trim())return;$('#sup').textContent='Ищу…';supRender(await api('/api/supplier/search?q='+encodeURIComponent(q)),'')}
 function renderItems(){
   const un=((CUR.auto||{}).unmatched||[]).filter(u=>!ITEMS.some(x=>x.src&&u.startsWith(srcName(x.src))));
-  const manual=(x,i)=>`<div class="grp ${x.cost>0?'':'need'}"><div class="gh"><span><b>${esc(x.src?srcName(x.src):x.name)}</b>${x.src?` <span class="mut">· по ТЗ ${esc(clean(x.src).slice(srcName(x.src).length).replace(/^\s*—\s*/,''))}</span>`:''}</span><b class="num">${x.cost>0?fmt(x.cost*x.qty)+' ₸':'<span class="t-warn">нет цены</span>'}</b></div>
+  const manual=(x,i)=>`<div class="grp ${priced(x)?'':'need'}"><div class="gh"><span><b>${esc(x.src?srcName(x.src):x.name)}</b>${x.src?` <span class="mut">· по ТЗ ${esc(clean(x.src).slice(srcName(x.src).length).replace(/^\s*—\s*/,''))}</span>`:''}</span><b class="num">${priced(x)?fmt(x.cost*x.qty)+' ₸':'<span class="t-warn">нет цены</span>'}</b></div>
     <div class="pc"><div class="thumb">${ic('danger-triangle')}</div>
-      <div class="pm"><div class="pn">${x.cost>0?'Цена вписана вручную':'Нет у поставщика — впишите точную цену'}</div>${x.tier&&x.tier!=='нет у поставщика'?`<div class="meta">${esc(x.tier.replace(/^нет у поставщика: /,''))}</div>`:''}
-        <div class="acts"><button data-find="${esc(srcName(x.src||x.name))}" data-fi="${i}">${ic('magnifer')}Найти у поставщика</button><button data-d="${i}">Убрать</button></div></div>
-      <div class="pr"><input type="number" class="mprice" data-c="${i}" value="${x.cost>0?x.cost:''}" placeholder="₸ за ед."><div class="mul">× <input type="number" data-q="${i}" value="${x.qty}"></div></div></div></div>`;
+      <div class="pm"><div class="pn">${priced(x)?(x.work?'Сумма работ вписана':'Цена вписана вручную'):x.work?'Работа вне ставки за камеру — впишите сумму':x.gap?'Есть в тексте ТЗ, нет в смете — впишите цену':'Нет у поставщика — впишите точную цену'}</div>${x.tier&&x.tier!=='нет у поставщика'?`<div class="meta">${esc(x.tier.replace(/^нет у поставщика: /,''))}</div>`:''}
+        <div class="acts">${x.work?'':`<button data-find="${esc(srcName(x.src||x.name))}" data-fi="${i}">${ic('magnifer')}Найти у поставщика</button>`}<button data-d="${i}">Убрать</button></div></div>
+      <div class="pr"><input type="number" class="mprice" data-c="${i}" value="${priced(x)?x.cost:''}" placeholder="${x.work?'₸, 0 — бесплатно':'₸ за ед.'}"><div class="mul">× <input type="number" data-q="${i}" value="${x.qty}"></div></div></div></div>`;
   const it=(x,i)=>x.manual?manual(x,i):`<div class="grp"><div class="gh"><span><b>${esc(x.src?srcName(x.src):x.is_camera?'Камеры':'Без строки ТЗ')}</b>${x.src?` <span class="mut">· по ТЗ ${esc(clean(x.src).slice(srcName(x.src).length).replace(/^\s*—\s*/,''))}</span>`:''}</span><b class="num">${fmt(x.cost*x.qty)} ₸</b></div>
     <div class="pc">${thumb(x)}
       <div class="pm"><div class="pn">${esc(x.name)}</div><div class="meta">${x.tier?`<span class="tag">${esc(x.tier)}</span>`:''}арт. ${x.article}${x.cost_src&&x.cost_src!=='платина'?` · <span class="t-warn">${esc(x.cost_src)}</span>`:''}${x.is_camera?' · камера':''} · ${stockTxt(x.stock,byMeter(x)?1:x.qty)}</div>
@@ -499,11 +510,20 @@ function renderItems(){
     <div class="alts" id="alt${i}"></div></div>`;
   const miss=u=>{u=clean(u);const m=u.match(/^(.*?) — ([\d.,]+) (\S+)(?: \((.*)\))?$/)||[,u,1,'',''];
     return `<div class="grp miss"><div class="gh"><span><b>${esc(m[1])}</b> <span class="mut">· по ТЗ ${esc(m[2])} ${esc(m[3])}</span><span class="s t-warn">не подобрано${m[4]?': '+esc(m[4]):''} · не в расчёте</span></span><button data-find="${esc(m[1])}" data-fq="${esc(m[2])}" data-fs="${esc(u.replace(/ \(.*\)$/,''))}">${ic('magnifer')}Найти</button></div></div>`};
-  $('#items').innerHTML=ITEMS.map(it).join('')+un.map(miss).join('')
+  // оборудование из текста ТЗ и работы вне ставки — одним блоком «не хватает данных»
+  const extra=ITEMS.map((x,i)=>[x,i]).filter(([x])=>x.gap||x.work);
+  const row=([x,i])=>`<div class="nrow ${priced(x)?'':'need'}"><div class="nn"><b>${esc(x.name[0].toUpperCase()+x.name.slice(1))}</b><span class="mut small">${x.work?'работа':'оборудование'}</span></div>
+    <input type="number" class="mprice" data-c="${i}" value="${priced(x)?x.cost:''}" placeholder="${x.work?'₸ или 0':'₸ за ед.'}">
+    <span class="mul">× <input type="number" data-q="${i}" value="${x.qty}"></span>
+    <span class="acts">${x.work?'':`<button data-find="${esc(x.name)}" data-fi="${i}" title="Найти у поставщика">${ic('magnifer')}</button>`}<button data-d="${i}" title="Не нужно — убрать">✕</button></span></div>`;
+  const left=extra.filter(([x])=>!priced(x)).length;
+  const extraHtml=extra.length?`<div class="needbox ${left?'':'done'}"><div class="nh">${ic(left?'danger-triangle':'check-circle')}<div><b>${left?`Не хватает данных — впишите цены (${left} из ${extra.length})`:'Данные из текста ТЗ вписаны'}</b>
+    <div class="small">Это есть в тексте ТЗ, но не в смете. Впишите стоимость (за единицу × количество из ТЗ) или найдите товар у поставщика ${ic('magnifer')}. Для работ впишите 0, если для вас они бесплатны. Ненужное уберите ✕.</div></div></div>${extra.map(row).join('')}</div>`:'';
+  $('#items').innerHTML=extraHtml+ITEMS.map((x,i)=>x.gap||x.work?'':it(x,i)).join('')+un.map(miss).join('')
     +(!ITEMS.length&&!un.length?'<div class="empty">'+ic('info-circle')+'<div>Позиций в расчёте нет. Найдите товар ниже и нажмите «+ в расчёт».</div></div>':'');
   $('#items').querySelectorAll('input[data-q]').forEach(el=>{el.oninput=()=>{ITEMS[+el.dataset.q].qty=+el.value;recalc()};el.onchange=()=>renderItems()});
   $('#items').querySelectorAll('button[data-d]').forEach(b=>b.onclick=()=>{ITEMS.splice(+b.dataset.d,1);renderItems();recalc()});
-  $('#items').querySelectorAll('input[data-c]').forEach(el=>{el.oninput=()=>{ITEMS[+el.dataset.c].cost=+el.value||null;recalc()};el.onchange=()=>renderItems()});
+  $('#items').querySelectorAll('input[data-c]').forEach(el=>{el.oninput=()=>{ITEMS[+el.dataset.c].cost=el.value===''?null:+el.value;recalc()};el.onchange=()=>renderItems()});
   $('#items').querySelectorAll('button[data-find]').forEach(b=>b.onclick=()=>{const fi=b.dataset.fi;SUP_FOR=fi!=null?{src:ITEMS[+fi].src,qty:ITEMS[+fi].qty,idx:+fi}:{src:b.dataset.fs,qty:+String(b.dataset.fq).replace(',','.')||1};$('#supQ').value=b.dataset.find;supSearch(b.dataset.find);$('#supSearch').scrollIntoView({block:'center',behavior:'smooth'})});
   $('#items').querySelectorAll('button[data-alt]').forEach(b=>b.onclick=async()=>{const i=+b.dataset.alt,box=$('#alt'+i);
     if(box.innerHTML){box.innerHTML='';return}
@@ -520,7 +540,7 @@ let saveT;
 function recalc(first){
   const c=readCalc(),r=compute(CUR,c),f=compute(CUR,{...c,bid:CUR.price});
   const known=!!r.verdict,rest=r.other-r.labor;
-  const np=ITEMS.filter(i=>i.manual&&!(i.cost>0)).length; // строки сметы без цены
+  const np=ITEMS.filter(i=>i.manual&&!priced(i)).length; // строки сметы без цены
   const draft=known&&lotGroup({...CUR,calc:first===true?CUR.calc:c,_r:r}).g==='manual'; // лот на ручной проверке — цифры черновые
   const taxes=r.bid-r.equip-r.other-r.logi-r.net; // всё, что уходит государству (упрощёнка / НДС к уплате + КПН)
   // полоса: на что уходит цена в заявке
@@ -533,9 +553,6 @@ function recalc(first){
     <div class="ax"><span>0</span><span>${r.net<0?`<b class="t-bad">расходы и налоги больше цены на ${fmt(-r.net)} ₸</b>`:`цена в заявке ${fmt(r.bid)} ₸`}</span></div>`
     :`<div class="empty">${ic('danger-triangle')}<div><b>Прибыль пока не посчитать.</b> Добавьте товары в «Подборе у поставщика» ниже или впишите расходы справа.</div></div>`}`;
   $('#resWarn').innerHTML=(CUR.dumping_price&&r.bid<CUR.dumping_price?`<div class="warnline">${ic('danger-triangle')}Цена ниже порога демпинга ${fmt(CUR.dumping_price)} ₸</div>`:'')
-    +(()=>{const a=CUR.auto||{},g=a.gaps||[],w=a.text_works||[];return g.length||w.length?`<div class="gaps">${ic('danger-triangle')}<div><b>Не посчитано — проверьте ТЗ</b>
-      ${g.length?`<div>Оборудование из текста ТЗ, которого нет в смете: <b>${g.map(esc).join(', ')}</b>. Добавьте через поиск у поставщика или впишите суммой в «Прочее».</div>`:''}
-      ${w.length?`<div>Работы из ТЗ, которых нет в ставке за камеру: <b>${w.map(esc).join(', ')}</b>. Если они платные для вас — впишите в «Прочее».</div>`:''}</div></div>`:''})()
     +(np&&known?`<div class="warnline" style="color:var(--warn)">${ic('danger-triangle')}Прибыль завышена: ${np} ${np===1?'строка':'строки'} сметы без цены. Впишите цену в «Подборе у поставщика» ниже.</div>`:'');
   const sh=v=>r.bid?`<span class="p">${pct(v/r.bid)}</span>`:'';
   $('#colIn').innerHTML=(S.tax==='our'
@@ -546,7 +563,7 @@ function recalc(first){
   $('#eqV').textContent=fmt(r.equip);
   $('#eqS').innerHTML=ITEMS.length?`${ITEMS.length} поз.${np?` · <span class="t-warn"><b>${np} без цены</b></span>`:''} · <a href="#" id="toSup">смета ↓</a>`:c.unitCost?`${fmt(c.unitCost)} × ${r.qty}`:'<span class="t-warn">нет позиций · <a href="#" id="toSup">подобрать ↓</a></span>';
   if($('#toSup'))$('#toSup').onclick=e=>{e.preventDefault();$('#supCard').scrollIntoView({behavior:'smooth'})};
-  $('#labS').textContent=c.labor!=null?'вписано вручную':r.isTO?(r.cams&&r.months?`авто: ${r.cams} кам. × ${r.months} мес. × ${S.toRate===''?'ставка не задана':fmt(+S.toRate)}`:'авто: задайте камеры и месяцы'):r.cams?`авто: ${r.cams} кам. × ${fmt(instRate(r.cams))} ₸`:'авто: камер нет';
+  $('#labS').textContent=c.labor!=null?'вписано вручную':!CUR.install&&!r.isTO?'не нужен — только поставка':r.isTO?(r.cams&&r.months?`авто: ${r.cams} кам. × ${r.months} мес. × ${S.toRate===''?'ставка не задана':fmt(+S.toRate)}`:'авто: задайте камеры и месяцы'):r.cams?`авто: ${r.cams} кам. × ${fmt(instRate(r.cams))} ₸`:'авто: камер нет';
   $('#c_labor').placeholder=fmt(r.labor);$('#c_logistics').placeholder=fmt(r.logi);
   $('#resFoot').innerHTML=known?`<div class="foot"><span>${ic('tag-price')}Мин. цена для ${pct(S.target)}: <b>${fmt(r.minBid)} ₸</b> <span class="mut">${r.minBid>CUR.price?'выше суммы лота':'скидка до '+pct(1-r.minBid/CUR.price)}</span></span><span>${ic('box')}Деньги на старте: <b>${fmt(r.needCash)} ₸</b></span></div>`:'';
   $('#supHd').innerHTML=ITEMS.length?`в расчёте ${ITEMS.length} поз. на <b>${fmt(r.equip)} ₸</b>`:'';

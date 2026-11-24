@@ -354,11 +354,12 @@ def autopick(lot, spec):
             result = {"ok": True, "items": items, "cams": text_cams, "rough": True}
         # что в тексте ТЗ есть, а в смете нет; работы вне ставки за камеру (docs/ECONOMICS.md, 2.4.1)
         gaps, text_works = bom.text_gaps(raw, result["items"])
-        result.update(gaps=gaps, text_works=text_works)
+        result["items"] += bom.gap_items(gaps, text_works)
+        result.update(gaps=gaps, text_works=[k for k, must in text_works if must])
         if gaps:
-            notes.append("в тексте ТЗ есть, в смете нет: " + ", ".join(gaps))
-        if text_works:
-            notes.append("работы из ТЗ вне ставки за камеру: " + ", ".join(text_works))
+            notes.append("в тексте ТЗ есть, в смете нет — впишите цену: " + ", ".join(gaps))
+        for k, must in text_works:
+            notes.append(f"работа из ТЗ вне ставки за камеру — впишите сумму: {k}" if must else f"работа из ТЗ входит в ставку «под ключ»: {k}")
     else:
         qty = (spec or {}).get("qty") or lot.get("qty_api") or 1
         p, tier, models = pick_by_model(text, lot["name"])

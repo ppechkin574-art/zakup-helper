@@ -191,12 +191,31 @@ def lot_summary(row):
         "disc_code": (hist or {}).get("median_discount"), "disc_method": by_method,
         "west": source.west(lot),
         # нужен ли монтаж: работы/ремонт — да; поставка — если в спеке есть установка
-        "install": row["category"] in ("монтаж", "ремонт") or bool(
-            re.search(r"установк|монтаж", (spec.get("desc") or "") + " " + (lot.get("announcement_name_ru") or ""), re.I)),
+        **install_of(row["category"], (spec.get("desc") or "") + " " + (lot.get("announcement_name_ru") or "")),
         "calc": calc,
         "auto": auto,
         "flags": lot_flags(lot, ts, auto),
     }
+
+
+# Нужен ли монтаж при поставке: только явные слова о работе, не «кронштейн для монтажа» и не «установка ПО»
+INSTALL_RX = re.compile(
+    r"(?:с|включая|включ\w*|осуществ\w*|произв\w*|выполн\w*|обеспеч\w*|услуг\w*\s+по)\s+(?:доставк\w*\s+(?:и|,)\s+)?(?:установк|монтаж)\w*"
+    r"|(?:установк|монтаж)\w*\s+(?:и|,)\s+(?:настройк|подключени|наладк|пусконаладк|ввод\w*\s+в\s+эксплуатац)"
+    r"|(?:установк|монтаж)\w*\s+(?:осуществля|производ|выполня)\w*\s+(?:силами\s+)?поставщик"
+    r"|силами\s+поставщика[^.]{0,40}(?:установ|монтаж)|доставк\w*,?\s+(?:и\s+)?(?:установк|монтаж)", re.I)
+INSTALL_NOT = re.compile(r"установк\w*\s+(?:по|программ|приложени|драйвер)|(?:для|способ\w*|тип\w*)\s+(?:установк|монтаж)", re.I)
+
+
+def install_of(category, text):
+    """Монтаж: работы/ремонт — всегда; поставка — только если в ТЗ прямо сказано про установку силами поставщика."""
+    if category in ("монтаж", "ремонт"):
+        return {"install": True, "install_why": "лот на работы"}
+    for m in INSTALL_RX.finditer(text or ""):
+        frag = text[max(0, m.start() - 30):m.end() + 30]
+        if not INSTALL_NOT.search(frag):
+            return {"install": True, "install_why": "в ТЗ: «…" + re.sub(r"\s+", " ", frag).strip() + "…»"}
+    return {"install": False, "install_why": "только поставка"}
 
 
 # Лицензия на саму работу (а не «лицензия на ПО»): монтаж/охранная/строительная/проектная деятельность
