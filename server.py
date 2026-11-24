@@ -148,6 +148,7 @@ def lot_summary(row):
         "system": (lot.get("system") or {}).get("name"),
         "end": lot.get("offer_end_date"), "start": lot.get("offer_start_date"),
         "region": ", ".join(a.get("name_ru") or "" for a in lot.get("delivery_addresses") or []),
+        "addresses": [a.get("name_ru") or "" for a in lot.get("delivery_addresses") or []],
         "customer": ", ".join(c.get("name_ru") or c.get("name_kk") or "" for c in lot.get("customers") or []) or lot.get("organization_name"),
         "customer_bin": ", ".join(c.get("bin") or "" for c in lot.get("customers") or []),
         "ann_number": lot.get("announcement_number"), "ann_ext": lot.get("announcement_external_id"),
@@ -178,6 +179,8 @@ class H(BaseHTTPRequestHandler):
         p = self.path.split("?")[0]
         if p in ("/", "/index.html"):
             return self.send(200, (ROOT / "web" / "index.html").read_bytes(), "text/html; charset=utf-8")
+        if p == "/variants":  # варианты дизайна (временно)
+            return self.send(200, (ROOT / "web" / "variants.html").read_bytes(), "text/html; charset=utf-8")
         if p == "/api/status":
             return self.send(200, state | {"last": store.meta_get("last_refresh"), "supplier": sup_state | {
                 "catalog": store.meta_get("supplier_catalog"), "prices": store.meta_get("supplier_prices")}})
