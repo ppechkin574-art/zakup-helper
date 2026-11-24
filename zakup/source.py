@@ -1,0 +1,214 @@
+"""Доступ к открытому API zakup.gov.kz (без авторизации)."""
+import json
+import re
+import subprocess
+import tempfile
+import time
+import urllib.parse
+import urllib.request
+
+BASE = "https://zakup.gov.kz/api/core/api"
+UA = "zakup-helper/1.0"
+
+# Поиск на сайте не учитывает падежи — перебираем формы слов.
+KEYWORDS = [
+    "видеонаблюдения", "видеонаблюдение", "видеонаблюдением", "видеонаблюдению",
+    "видеокамера", "видеокамеры", "видеокамер", "видеорегистратор",
+    "видеорегистратора", "видеорегистраторы", "бейнебақылау", "бейнекамера",
+    "CCTV", "видеоаналитика",
+]
+
+# Чтобы не тащить мусор, вроде «интернет для нагрудных видеорегистраторов».
+NOISE = re.compile(r"мобильного интернета|услуги связи|интернет|нагрудн", re.I)
+
+
+def get(path, params=None, timeout=60, retries=3):
+    url = path if path.startswith("http") else BASE + path
+    if params:
+        url += "?" + urllib.parse.urlencode(params, doseq=True)
+    last = None
+    for i in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.load(r)
+        except Exception as e:  # сеть/5xx — пробуем ещё раз
+            last = e
+            time.sleep(1.5 * (i + 1))
+    raise last
+
+
+def search_open_lots(now_iso):
+    """Все лоты, где приём заявок ещё не закончился, по всем ключевым словам."""
+    seen = {}
+    for kw in KEYWORDS:
+        offset = 0
+        while True:
+            d = get("/public/lots/", {"q": kw, "limit": 100, "offset": offset,
+                                      "offer_end_date__gte": now_iso})
+            for x in d["results"]:
+                seen.setdefault(x["id"], x)
+            if not d.get("next"):
+                break
+            offset += 100
+    return list(seen.values())
+
+
+def classify(lot):
+    name = " ".join(filter(None, [
+        lot.get("name_ru"), lot.get("announcement_name_ru"),
+        *[(e.get("short_description_ru") or "") for e in lot.get("enstrus") or []],
+    ])).lower()
+    if NOISE.search(name):
+        return "шум"
+    if "обслуживан" in name:
+        return "ТО"
+    if "ремонт" in name or "модерниз" in name:
+        return "ремонт"
+    if "монтаж" in name or "устройств" in name or "строитель" in name:
+        return "монтаж"
+    if 1 in (lot.get("purchase_subject_id") or []):
+        return "поставка"
+    return "прочее"
+
+
+# ---------- техспецификация ----------
+
+def techspec_files(announcement_id):
+    out = []
+    for g in get(f"/public/announcements/{announcement_id}/general-files/") or []:
+        gname = (g.get("group") or {}).get("name") or ""
+        for f in g.get("files") or []:
+            fi = f.get("file") or {}
+            if fi.get("file_url"):
+                out.append({"group": gname, "url": fi["file_url"], "name": fi.get("filename") or ""})
+    return out
+
+
+def file_text(url):
+    """PDF → pdftotext, DOC/DOCX/RTF → textutil (macOS). Тип определяем по содержимому."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=90) as r:
+        data = r.read()
+    head = data[:8]
+    if head.startswith(b"%PDF"):
+        suffix, cmd = ".pdf", lambda p: ["pdftotext", "-layout", p, "-"]
+    elif head.startswith(b"PK"):
+        suffix, cmd = ".docx", lambda p: ["textutil", "-convert", "txt", "-stdout", p]
+    elif head.startswith(b"\xd0\xcf\x11\xe0"):
+        suffix, cmd = ".doc", lambda p: ["textutil", "-convert", "txt", "-stdout", p]
+    elif head.startswith(b"{\\rtf"):
+        suffix, cmd = ".rtf", lambda p: ["textutil", "-convert", "txt", "-stdout", p]
+    else:
+        return ""
+    with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+        tmp.write(data)
+        tmp.flush()
+        res = subprocess.run(cmd(tmp.name), capture_output=True, text=True, timeout=90)
+        return res.stdout
+
+
+pdf_text = file_text
+
+
+def _field(text, label):
+    m = re.search(label + r"\s*:?\s+(.+)", text)
+    return m.group(1).strip() if m else None
+
+
+def parse_techspec(text):
+    """Берём русскую часть (после казахской) и вытаскиваем ключевые поля."""
+    i = text.find("Техническая спецификация")
+    ru = text[i:] if i >= 0 else text
+    qty = _field(ru, r"Количество")
+    unit = _field(ru, r"Единица измерения")
+    term = _field(ru, r"Срок поставки") or _field(ru, r"Срок выполнения")
+    m = re.search(r"Описание и требуемые(.+)", ru, re.S)
+    desc = ""
+    if m:
+        # Правая колонка таблицы: отрезаем левую подпись (до ~30 символов)
+        lines = []
+        for ln in m.group(1).splitlines():
+            ln = ln.rstrip()
+            if not ln.strip():
+                continue
+            parts = re.split(r"\s{3,}", ln.strip(), maxsplit=1)
+            lines.append(parts[-1] if len(parts) > 1 or len(ln) - len(ln.lstrip()) < 5 else ln.strip())
+        desc = " ".join(lines)
+    qn = None
+    if qty:
+        mm = re.search(r"[\d\s]+[.,]?\d*", qty)
+        if mm:
+            try:
+                qn = float(mm.group(0).replace(" ", "").replace(",", "."))
+            except ValueError:
+                qn = None
+    return {"qty": qn, "qty_raw": qty, "unit": unit, "term": term,
+            "desc": desc[:6000], "raw": ru[:20000]}
+
+
+def lot_techspec(lot):
+    files = techspec_files(lot["announcement_id"])
+    specs = [f for f in files if "спецификац" in f["group"].lower() or f["name"].startswith("techspec")]
+    ext = str(lot.get("external_id") or "")
+    auto = [f for f in specs if f["name"].startswith("techspec")]
+    mine = [f for f in auto if ext and ext in f["name"]] or auto[:1]
+    result = {"files": files, "spec": None}
+    if mine:  # стандартная спецификация портала (товары)
+        try:
+            result["spec"] = parse_techspec(file_text(mine[0]["url"])) | {"url": mine[0]["url"]}
+        except Exception as e:
+            result["spec"] = {"error": str(e), "url": mine[0]["url"]}
+    else:  # работы/услуги: свои ТЗ и сметы в Word/PDF — склеиваем текст
+        parts = []
+        for f in specs[:5]:
+            try:
+                t = file_text(f["url"]).strip()
+            except Exception as e:
+                t = f"(не удалось прочитать: {e})"
+            if t:
+                parts.append(f"══ {f['name']} ══\n{t}")
+        if parts:
+            text = "\n\n".join(parts)
+            result["spec"] = {"qty": None, "unit": None, "term": None,
+                              "desc": text[:15000], "raw": text[:40000], "free_form": True}
+    return result
+
+
+# ---------- история цен по коду ЕНС ТРУ ----------
+
+def price_history(enstru_code, since_iso, max_details=40):
+    """Договоры по коду за период: плановая сумма vs цена договора → реальная скидка."""
+    d = get("/public/contracts/", {"enstru_code": enstru_code, "limit": 100,
+                                   "sign_date__gte": since_iso, "ordering": "-sign_date"})
+    rows = d.get("results", [])
+    competitive = [r for r in rows if "одного источника" not in (r.get("purchase_method_name") or "")]
+    deals = []
+    for r in competitive[:max_details]:
+        try:
+            c = get(f"/public/contracts/{r['id']}/")
+        except Exception:
+            continue
+        plan, price = c.get("plan_sum_with_vat") or 0, c.get("contract_price_with_vat") or 0
+        if plan > 0 and price > 0:
+            deals.append({
+                "sign_date": r.get("sign_date"), "plan": plan, "price": price,
+                "discount": round(1 - price / plan, 4),
+                "supplier": r.get("supplier_organization_name"),
+                "customer": r.get("customer_organization_name"),
+                "method": r.get("purchase_method_name"),
+            })
+    suppliers = {}
+    for r in rows:
+        s = r.get("supplier_organization_name") or "?"
+        suppliers[s] = suppliers.get(s, 0) + 1
+    disc = sorted(x["discount"] for x in deals)
+    med = disc[len(disc) // 2] if disc else None
+    return {
+        "enstru_code": enstru_code, "contracts_total": d.get("count", 0),
+        "competitive_checked": len(deals), "median_discount": med,
+        "p25_discount": disc[len(disc) // 4] if disc else None,
+        "p75_discount": disc[(len(disc) * 3) // 4] if disc else None,
+        "top_suppliers": sorted(suppliers.items(), key=lambda kv: -kv[1])[:8],
+        "deals": deals,
+    }
