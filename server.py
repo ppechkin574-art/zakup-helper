@@ -164,6 +164,34 @@ def lot_summary(row):
             re.search(r"установк|монтаж", (spec.get("desc") or "") + " " + (lot.get("announcement_name_ru") or ""), re.I)),
         "calc": calc,
         "auto": auto,
+        "flags": lot_flags(lot, ts, auto),
+    }
+
+
+# Лицензия на саму работу (а не «лицензия на ПО»): монтаж/охранная/строительная/проектная деятельность
+LICENSE_RX = re.compile(
+    r"государственн\w*\s+лицензи|лицензи\w*\s+(?:на|по|для)\s+[^.;]{0,80}?(?:монтаж|охран|строител|строительн|изыскат|проектн|"
+    r"деятельност|работ)|лицензи\w*[^.;]{0,40}?(?:I{1,3}|IV|[1-4])\s*категори|(?:I{1,3}|IV|[1-4])\s*категори\w*[^.;]{0,40}?лицензи", re.I)
+ALARM_RX = re.compile(r"сигнализац|извещател|приемно-контрольн|приёмно-контрольн|\bппк\b|оповещател|дабыл", re.I)
+# стандартное название кода ЕНС ТРУ — есть почти у всех лотов на монтаж/ремонт, сигнализацией не считаем
+STD_NAME_RX = re.compile(r"(?:пожарн\w*\s*/\s*)?охранн\w*\s+сигнализаци\w*\s*/\s*систем\w*\s+видеонаблюдени\w*|"
+                         r"күзет\w*\s+(?:дабыл|сигнализац)\w*\s*/\s*бейнебақылау\w*\s+жүйе\w*", re.I)
+# не наш товар: веб-камеры, ручные видеокамеры, автомобильные регистраторы (docs/ECONOMICS.md, «Группы»)
+OFFTOPIC_RX = re.compile(r"для типа «(веб|ручная|авто)»")
+
+
+def lot_flags(lot, ts, auto):
+    spec = (ts or {}).get("spec") or {}
+    name = " ".join(filter(None, [lot.get("name_ru"), lot.get("announcement_name_ru"), lot.get("description_ru"),
+                                  *[(e.get("short_description_ru") or "") for e in lot.get("enstrus") or []]]))
+    text = spec.get("raw") or spec.get("desc") or ""
+    reason = (auto or {}).get("reason") or ""
+    return {
+        "alarm": len(ALARM_RX.findall(STD_NAME_RX.sub(" ", name + " " + text))) >= 2,  # сигнализация в самом заказе
+        "license": bool(LICENSE_RX.search(text)),
+        "no_docs": ts is not None and not (ts.get("files") or []),  # None — ещё не скачивали
+        "scan": "распознано со скана" in text[:400],
+        "offtopic": bool(OFFTOPIC_RX.search(reason)),
     }
 
 

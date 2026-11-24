@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Группы лотов — изменения</title>
+<style>
+:root{--bg:#F2F2F7;--card:#fff;--ink:#000;--mut:#6C6C70;--line:#E5E5EA;--acc:#0040DD;--good:#248A3D;--goodbg:#E3F5E8;
+  --shadow:0 0 0 1px rgba(0,0,0,.05),0 1px 2px rgba(0,0,0,.06),0 4px 14px rgba(0,0,0,.06)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:980px;margin:0 auto;padding:28px 16px 60px}
+h1{font:700 28px/1.2 "SF UI Display",-apple-system,sans-serif;margin:0 0 6px}
+.sub{color:var(--mut);margin:0 0 22px}
+.card{background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px;margin-bottom:14px}
+h2{font:700 18px/1.3 "SF UI Display",-apple-system,sans-serif;margin:0 0 10px}
+ul{margin:6px 0;padding-left:20px} li{margin:4px 0}
+img{width:100%;border-radius:10px;border:1px solid var(--line);display:block;margin-top:12px}
+.cap{font-size:13px;color:var(--mut);margin-top:6px}
+table{border-collapse:collapse;width:100%;font-size:14px} td,th{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--mut);font-weight:600}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ok{display:inline-block;background:var(--goodbg);color:var(--good);font-weight:600;font-size:12px;padding:2px 8px;border-radius:99px}
+code{background:var(--bg);padding:1px 5px;border-radius:5px;font-size:13px}
+</style></head><body><div class="wrap">
+<h1>Группы лотов: выгодно / не выгодно / посмотреть вручную</h1>
+<p class="sub">24.11.2026 · помощник по госзакупкам · localhost:8765 · правила — docs/ECONOMICS.md, раздел 1 и 2.8</p>
+
+<div class="card">
+<h2>Коротко</h2>
+<ul>
+<li>Список разбит на <b>4 группы</b>: «Примерно выгодно», «На грани», «Примерно не выгодно», «Посмотреть вручную». У группы видно число лотов и общую сумму.</li>
+<li>Новый порог: <b>прибыль меньше 50 000 ₸ — «невыгодно»</b>, даже если процент хороший. Порог есть в «Параметрах».</li>
+<li>У каждого лота из «Посмотреть вручную» написано, <b>почему</b> его не посчитать: ТЗ на портале Самрук-Қазына, нет документов, скан, обслуживание, есть сигнализация, товара нет у поставщика.</li>
+<li>Пометки на плитке и в карточке: <b>«есть сигнализация»</b> и <b>«нужна лицензия»</b>.</li>
+<li><b>Не наш товар</b> (веб-камеры, ручные видеокамеры, автомобильные регистраторы) скрыт. Найти его можно в фильтре «мусор и не наш товар».</li>
+<li>Добавлено ключевое слово поиска «видеосигнала» (приёмопередатчики для камер).</li>
+</ul>
+</div>
+
+<div class="card">
+<h2>Что сейчас в списке (запад, открытые лоты)</h2>
+<table>
+<tr><th>Группа</th><th class="num">Лотов</th><th class="num">Сумма</th></tr>
+<tr><td>Примерно выгодно</td><td class="num">5</td><td class="num">32 028 229 ₸</td></tr>
+<tr><td>На грани / Примерно не выгодно</td><td class="num">0</td><td class="num">—</td></tr>
+<tr><td>Посмотреть вручную</td><td class="num">10</td><td class="num">781 220 586 ₸</td></tr>
+<tr><td>Не наш товар (скрыт)</td><td class="num">2</td><td class="num">3 906 035 ₸</td></tr>
+</table>
+<p class="cap">Из 10 «вручную»: 7 — лоты Самрук-Қазыны без ТЗ (из них 3 — обслуживание), 1 — лот без документов, 1 — скан ТЗ на казахском (там сигнализация), 1 — приёмопередатчик, которого нет у поставщика.</p>
+</div>
+
+<div class="card">
+<h2>Как это выглядит</h2>
+<img src="groups-2-card.png" alt="Карточка лота с причиной">
+<p class="cap">Карточка лота: пометка «есть сигнализация» и причина, почему лот в группе «Посмотреть вручную».</p>
+<img src="groups-1-list.png" alt="Список по группам">
+<p class="cap">Список по группам. Под названием каждого лота из «Посмотреть вручную» — причина.</p>
+</div>
+
+<div class="card">
+<h2>Проверено</h2>
+<ul>
+<li>Поиск полный: дополнительные слова («камера», «регистратор», «бейнебақылау», «видео», «СКУД», «безопасный город» и др.) новых лотов видеонаблюдения на западе не дали. Два лота на 14,4 млн ₸ были просто опубликованы после последнего обновления и подхватились сами.</li>
+<li>Два лота «Видеокамера» без оценки — это действительно не наш товар: веб-камеры для рабочих мест (200 000 ₸) и ручная 4K-камера для съёмки (3,7 млн ₸).</li>
+<li>Пометка «нужна лицензия» проверена на примерах: «лицензия на монтаж… охранной сигнализации», «государственная лицензия на СМР», «III категории» — ставится; «лицензия на ПО», «лицензионное ПО» — нет. В текущих лотах таких требований в ТЗ нет.</li>
+</ul>
+</div>
+
+<div class="card">
+<h2>Не сделано: ТЗ лотов Самрук-Қазыны</h2>
+<p>На zakup.gov.kz у лотов Самрук-Қазыны нет файлов, ТЗ лежат на их портале zakup.sk.kz. У портала есть открытый адрес с данными закупки, но автоматические запросы он блокирует и отвечает только настоящему браузеру. Обходить эту защиту я не стал. Сейчас такие лоты попадают в «Посмотреть вручную» с причиной «ТЗ на портале Самрук-Қазына». Варианты — в сообщении в чате.</p>
+</div>
+</div></body></html>

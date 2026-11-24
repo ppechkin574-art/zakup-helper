@@ -180,13 +180,18 @@ main{position:relative}
 button.done{background:var(--goodbg);color:var(--good)}
 .alts{background:#FAFAFC}.alts .pc{border-top:1px solid var(--line)}
 .forline{display:flex;gap:8px;align-items:center;background:var(--sel);border-radius:10px;padding:6px 10px;font-size:13px;margin-bottom:6px}.forline button{margin-left:auto;padding:3px 8px}
+.ghead{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin:10px 2px 0}
+.ghead:first-child{margin-top:0}.ghead span:last-child{margin-left:auto;font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut)}
+.ghead.g-good{color:var(--good)}.ghead.g-warn{color:var(--warn)}.ghead.g-bad{color:var(--bad)}.ghead.g-manual{color:#3A3A3C}
+.grpline{display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center;background:var(--fill);border-radius:10px;padding:8px 12px;margin:-4px 0 12px;font-size:13px}
+.lot .why{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:var(--mut);margin-top:-4px}
 @media (max-width:900px){body{height:auto}main{grid-template-columns:1fr}#list{max-height:60vh}}
 </style>
 </head>
 <body>
 <header>
   <h1>Госзакуп · Видеонаблюдение</h1>
-  <select id="fCat"><option value="">Все категории</option><option>поставка</option><option>монтаж</option><option>ремонт</option><option>ТО</option><option>прочее</option><option value="шум">мусор (интернет и т.п.)</option></select>
+  <select id="fCat"><option value="">Все категории</option><option>поставка</option><option>монтаж</option><option>ремонт</option><option>ТО</option><option>прочее</option><option value="шум">мусор и не наш товар</option></select>
   <select id="fReg"><option value="">Все регионы</option></select>
   <label class="search"><span data-ic="magnifer"></span><input id="fQ" placeholder="Поиск"></label>
   <label class="small"><input type="checkbox" id="fMin"> от 1 млн ₸</label>
@@ -215,7 +220,7 @@ const $=s=>document.querySelector(s);
 const fmt=n=>n==null||isNaN(n)?'—':Math.round(n).toLocaleString('ru-RU');
 const pct=n=>n==null||isNaN(n)?'—':(n*100).toFixed(1)+'%';
 // правила — docs/ECONOMICS.md
-const DEF={tax:'simple',vat:0.16,kpn:0.20,simple:0.04,target:0.15,warnFrom:0.05,bidSec:0.01,perfSec:0.03,logistics:0.03,
+const DEF={tax:'simple',vat:0.16,kpn:0.20,simple:0.04,target:0.15,warnFrom:0.05,minProfit:50000,bidSec:0.01,perfSec:0.03,logistics:0.03,
   inst1:20000,instT1:10,inst2:18000,instT2:30,inst3:15000,toRate:'',discNoHist:0.10,minDeals:5,discSingle:0,bin:''};
 // монтаж под ключ за камеру: ставка зависит от числа камер на объекте и применяется ко всем камерам
 function instRate(n){return n>S.instT2?S.inst3:n>S.instT1?S.inst2:S.inst1}
@@ -287,26 +292,49 @@ function compute(l,c){
   else minBid=costNet/(1-S.simple-S.target);
   const needCash=equip+other+logi+bid*(S.bidSec+S.perfSec);
   const known=equip>0||other>0;
-  const verdict=!known?null:margin>=S.target?'good':margin>=S.warnFrom?'warn':'bad';
+  const verdict=!known?null:net<(+S.minProfit||0)?'bad':margin>=S.target?'good':margin>=S.warnFrom?'warn':'bad';
   return {cams,months,isTO,labor,bid,qty,equip,other,logi,tax,net,margin,minBid,needCash,verdict,costNet,revNet}
 }
 const VLAB={good:'выгодно',warn:'на грани',bad:'невыгодно'};
 
+// ---------- группы (docs/ECONOMICS.md, «Группы лотов») ----------
+const GROUPS=[['good','Примерно выгодно','check-circle'],['warn','На грани','danger-triangle'],['bad','Примерно не выгодно','close-circle'],['manual','Посмотреть вручную','question-circle']];
+function lotGroup(l){const f=l.flags||{},r=l._r||compute(l,effCalc(l)),a=l.auto||{};
+  if(f.offtopic)return {g:'off',why:'не наш товар: '+(a.reason||'').replace(/^.*типа «(\S+)».*$/,(m,k)=>({'веб':'веб-камеры','ручная':'ручная видеокамера','авто':'автомобильный регистратор'}[k]||k))};
+  if(!l.calc){ // ваш ручной расчёт важнее этих правил
+    if(f.alarm)return {g:'manual',why:'автоподбор считает только камеры, сигнализацию — вручную'};
+    if(l.category==='ТО')return {g:'manual',why:'обслуживание — считается вручную'};
+  }
+  if(r.verdict)return {g:r.verdict};
+  if(f.no_docs)return {g:'manual',why:l.system==='SKK'?'ТЗ на портале Самрук-Қазына, сюда не скачивается':'к лоту нет документов'};
+  if(f.scan)return {g:'manual',why:'ТЗ — скан без списка оборудования'};
+  if(/типа «не определён»/.test(a.reason||''))return {g:'manual',why:`такого товара нет у поставщика${(a.models||[]).length?' (модель '+a.models.slice(0,2).join(', ')+')':''} — цену закупки вписать вручную`};
+  return {g:'manual',why:!l.auto?'ещё обрабатывается — ТЗ и подбор появятся после обновления':a.reason||'нет себестоимости'};
+}
+function lotTags(l){const f=l.flags||{},a=l.auto||{},out=[];
+  if(f.license)out.push(`<span class="tag v-bad">${ic('shield-warning')} нужна лицензия</span>`);
+  if(f.alarm)out.push('<span class="tag v-warn">есть сигнализация</span>');
+  return out.join('')}
+
 // ---------- список ----------
 function render(){
   const cat=$('#fCat').value,reg=$('#fReg').value,q=$('#fQ').value.toLowerCase(),min=$('#fMin').checked;
-  let L=LOTS.filter(l=>(cat?l.category===cat:l.category!=='шум')&&(!reg||(reg==='—'?!l.region:l.region.includes(reg)))&&(!min||l.price>=1e6)
+  LOTS.forEach(l=>{const c=effCalc(l);l._r=compute(l,c);l._grp=lotGroup(l)});
+  let L=LOTS.filter(l=>(cat==='шум'?(l.category==='шум'||l._grp.g==='off'):(cat?l.category===cat:l.category!=='шум')&&l._grp.g!=='off')&&(!reg||(reg==='—'?!l.region:l.region.includes(reg)))&&(!min||l.price>=1e6)
     &&(!q||(l.name+' '+l.announcement+' '+l.customer+' '+l.short).toLowerCase().includes(q)));
   L.forEach(l=>{const c=effCalc(l);l._r=compute(l,c);l._f=compute(l,{...(c||{}),bid:l.price})});
   L.sort((a,b)=>{const g=x=>sortK==='verdict'?(x._r.verdict?x._r.margin:-1e9):x[sortK]??'';const A=g(a),B=g(b);return (A>B?1:A<B?-1:0)*sortDir});
   const fresh=Date.now()/1000-86400;
-  $('#tb').innerHTML=L.map(l=>{const r=l._r,addr=place((l.addresses||[])[0]||l.region);return `<div class="lot ${CUR&&CUR.id===l.id?'on':''}" data-id="${l.id}">
-    <div class="top">${endLabel(l.end)}${r.verdict?`<span class="tag v-${r.verdict}">${VLAB[r.verdict]} ${pct(r.margin)}</span>`:'<span class="tag">нет оценки</span>'}</div>
+  const tile=l=>{const r=l._r,G=l._grp,v=G.g,addr=place((l.addresses||[])[0]||l.region);return `<div class="lot ${CUR&&CUR.id===l.id?'on':''}" data-id="${l.id}">
+    <div class="top">${endLabel(l.end)}${['good','warn','bad'].includes(v)?`<span class="tag v-${v}">${VLAB[v]} ${pct(r.margin)}</span>`:v==='off'?'<span class="tag">не наш товар</span>':'<span class="tag">посмотреть</span>'}</div>
     <div class="title">${esc(l.name)}</div>
+    ${G.why||lotTags(l)?`<div class="why">${lotTags(l)}${G.why?`<span>${esc(G.why)}</span>`:''}</div>`:''}
     <div class="place">${ic('map-point')}${addr?`${esc(addr)}${(l.addresses||[]).length>1?` <span>+${l.addresses.length-1}</span>`:''}`:'<span>регион не указан</span>'}</div>
     <div class="nums"><div><div class="k">${ic('wallet-money')}Сумма лота</div><div class="sum">${fmt(l.price)} ₸</div></div>
-      <div><div class="k">${ic('graph-up')}Прибыль</div><div class="sum" style="color:${r.verdict?`var(--${r.verdict})`:'var(--mut)'}">${r.verdict?fmt(r.net)+' ₸':'—'}</div></div></div>
-  </div>`}).join('');
+      <div><div class="k">${ic('graph-up')}Прибыль${v==='manual'&&r.verdict?' (черновик)':''}</div><div class="sum" style="color:${['good','warn','bad'].includes(v)?`var(--${v})`:'var(--mut)'}">${r.verdict?fmt(r.net)+' ₸':'—'}</div></div></div>
+  </div>`};
+  const by=g=>L.filter(l=>l._grp.g===g);
+  $('#tb').innerHTML=cat==='шум'?L.map(tile).join(''):GROUPS.map(([g,title,icon])=>{const A=by(g);return A.length?`<div class="ghead g-${g}">${ic(icon)}${title}<span>${A.length} · ${fmt(A.reduce((s,l)=>s+l.price,0))} ₸</span></div>${A.map(tile).join('')}`:''}).join('');
   $('#stat').textContent=`${L.length} лотов на ${fmt(L.reduce((s,l)=>s+l.price,0))} ₸`;
 }
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -322,6 +350,7 @@ async function open(id){
   $('#detail').innerHTML=`
   <div class="card">
     <div class="title" style="font-size:19px;font-weight:700;margin:0 0 12px;line-height:1.3">${esc(l.name)}</div>
+    ${(()=>{const G=lotGroup(l),tg=lotTags(l);return G.g==='manual'||G.g==='off'||tg?`<div class="grpline">${tg}${G.g==='manual'?'<b>Посмотреть вручную</b>':G.g==='off'?'<b>Не наш товар</b>':''}${G.why?`<span class="mut">${esc(G.why.replace(/^не наш товар: /,''))}</span>`:''}</div>`:''})()}
     <div class="kv">
       <span class="k">${ic('clock-circle')}Приём до</span><span>${new Date(l.end).toLocaleString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})} · <span class="left ${new Date(l.end)-Date.now()<864e5?'urgent':''}" data-end="${l.end}">осталось ${leftText(l.end)}</span></span>
       <span class="k">${ic('wallet-money')}Сумма лота</span><span><b>${fmt(l.price)} ₸</b></span>
@@ -527,6 +556,7 @@ const PARAMS=[
   {g:'Оценка лота',items:[
     {k:'target',l:'«Выгодно» — от',u:'%',t:'Рентабельность = чистая прибыль / наша цена в заявке. От этого порога лот помечается «выгодно» (зелёный). По нему же считается минимальная цена.'},
     {k:'warnFrom',l:'«На грани» — от',u:'%',t:'От этого порога до порога «выгодно» лот помечается «на грани» (оранжевый). Ниже — «невыгодно» (красный).'},
+    {k:'minProfit',l:'Минимальная прибыль',u:'₸',step:10000,t:'Если чистая прибыль меньше этой суммы, лот «невыгодный», даже при хорошем проценте: мелкий лот не стоит выезда и возни.'},
   ]},
   {g:'Деньги на старте',items:[
     {k:'bidSec',l:'Обеспечение заявки',u:'%',t:'Процент от цены заявки, который замораживается на время торгов. В прибыль не входит, только в справку «Деньги на старте».'},
