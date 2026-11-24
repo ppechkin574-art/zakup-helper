@@ -172,7 +172,7 @@ def norm(s):
                   .replace("Т", "T").replace("Н", "H").replace("В", "B"))
 
 
-MODEL_RE = re.compile(r"\b[A-Za-zА-Яа-я]{1,6}[-‐–][A-Za-z0-9]{1,8}(?:[-‐–/][A-Za-z0-9()]{1,12}){0,6}\b")
+MODEL_RE = re.compile(r"\b[A-Za-zА-Яа-я][A-Za-z0-9]{0,10}[-‐–][A-Za-z0-9]{1,8}(?:[-‐–/][A-Za-z0-9()]{1,12}){0,6}\b")
 NOT_MODEL = re.compile(r"^(IEEE|RJ|H\.?26|DC|AC|PoE|IP\d|WDR|USB|HDMI|VGA|SATA|ONVIF|ГОСТ|СТ|ISO|ЕНС|Wi|Full|CMOS|MP|Smart|PTZ)", re.I)
 
 

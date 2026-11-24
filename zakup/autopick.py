@@ -280,6 +280,15 @@ def item_of(p, qty, tier):
             "is_camera": p["is_camera"], "qty": qty, "stock": p["quantity"], "tier": tier}
 
 
+def _cameras_from_text(raw, req, cams):
+    """Камеры для монтажа: модель из ТЗ, иначе аналог по типу/Мп."""
+    p, tier, _ = pick_by_model(raw, "")
+    if p and p["is_camera"]:
+        return item_of(p, cams, tier), None
+    a, why = type_analog(req)
+    return (item_of(a, cams, "аналог по типу"), None) if a else (None, why)
+
+
 # ---------- главный вход ----------
 
 def autopick(lot, spec):
@@ -296,24 +305,47 @@ def autopick(lot, spec):
     notes = []
 
     if works:
-        cams = count_cameras(russian_part(raw))
-        if not cams:
-            return {"ok": False, "reason": "в ТЗ не нашёл число камер — посчитайте вручную", "req": req}
+        from . import bom
+        text_cams = count_cameras(russian_part(raw))
         req["kind"] = req["kind"] if req["kind"] in ("купол", "цилиндр", "ptz") else "камера"
-        items = []
-        p, tier, models = pick_by_model(raw, "")
-        if p and p["is_camera"]:
-            items.append(item_of(p, cams, tier))
+        b = bom.build((spec or {}).get("tables"), raw)
+        if b["items"] or b["unmatched"]:
+            # смета по таблице ТЗ — таблица важнее фразы в тексте
+            items, cams = list(b["items"]), b["cams"]
+            if not cams and text_cams:
+                cam, why = _cameras_from_text(raw, req, text_cams)
+                if cam:
+                    items.insert(0, cam)
+                    cams = text_cams
+                    notes.append(f"камер в таблице нет — взято из текста ТЗ: {text_cams}")
+                else:
+                    notes.append(f"камер в тексте ТЗ {text_cams}, но {why}")
+            elif text_cams and cams != text_cams:
+                notes.append(f"в таблице {cams} камер, в тексте ТЗ {text_cams} — взята таблица")
+            if not items:
+                return {"ok": False, "reason": "в таблице ТЗ ничего не подобралось у поставщика",
+                        "unmatched": b["unmatched"], "req": req}
+            notes.append(f"смета по таблице ТЗ: {len(b['items'])} поз. подобрано из {b['rows']}")
+            for u in b["unmatched"]:
+                notes.append(f"не подобрано (не в расчёте): {u}")
+            if b["works"]:
+                notes.append("работы из ТЗ отдельно не считаются — только ставка за камеру")
+            result = {"ok": True, "items": items, "cams": cams, "rough": bool(b["unmatched"]),
+                      "unmatched": b["unmatched"], "bom": True}
         else:
-            a, why = type_analog(req)
-            if not a:
-                return {"ok": False, "reason": f"камер в ТЗ: {cams}, но {why}", "req": req}
-            items.append(item_of(a, cams, "аналог по типу"))
-            if p:  # найдена модель, но не камера (напр. регистратор) — добавляем 1 шт.
+            # таблицы нет — только камеры по числу из текста (грубо)
+            if not text_cams:
+                return {"ok": False, "reason": "в ТЗ нет таблицы оборудования и не нашёл число камер — посчитайте вручную", "req": req}
+            cam, why = _cameras_from_text(raw, req, text_cams)
+            if not cam:
+                return {"ok": False, "reason": f"камер в ТЗ: {text_cams}, но {why}", "req": req}
+            items = [cam]
+            p, tier, _ = pick_by_model(raw, "")
+            if p and not p["is_camera"]:
                 items.append(item_of(p, 1, tier))
-        notes.append(f"камер по ТЗ: {cams}")
-        notes.append("грубая оценка: кабель, коробки, регистратор и т.п. из ТЗ не учтены")
-        result = {"ok": True, "items": items, "cams": cams, "rough": True}
+            notes.append(f"камер по ТЗ: {text_cams}")
+            notes.append("грубая оценка: в ТЗ нет таблицы оборудования — кабель, коробки, регистратор не учтены")
+            result = {"ok": True, "items": items, "cams": text_cams, "rough": True}
     else:
         qty = (spec or {}).get("qty") or lot.get("qty_api") or 1
         p, tier, models = pick_by_model(text, lot["name"])

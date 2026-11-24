@@ -4,6 +4,11 @@ import re
 import subprocess
 import tempfile
 import time
+import io
+import os
+import zipfile
+import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
 import urllib.parse
 import urllib.request
 
@@ -85,27 +90,137 @@ def techspec_files(announcement_id):
     return out
 
 
-def file_text(url):
-    """PDF → pdftotext, DOC/DOCX/RTF → textutil (macOS). Тип определяем по содержимому."""
+def _download(url):
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=90) as r:
-        data = r.read()
+        return r.read()
+
+
+def _kind(data):
     head = data[:8]
     if head.startswith(b"%PDF"):
-        suffix, cmd = ".pdf", lambda p: ["pdftotext", "-layout", p, "-"]
-    elif head.startswith(b"PK"):
-        suffix, cmd = ".docx", lambda p: ["textutil", "-convert", "txt", "-stdout", p]
-    elif head.startswith(b"\xd0\xcf\x11\xe0"):
-        suffix, cmd = ".doc", lambda p: ["textutil", "-convert", "txt", "-stdout", p]
-    elif head.startswith(b"{\\rtf"):
-        suffix, cmd = ".rtf", lambda p: ["textutil", "-convert", "txt", "-stdout", p]
-    else:
-        return ""
+        return ".pdf"
+    if head.startswith(b"PK"):
+        try:
+            names = zipfile.ZipFile(io.BytesIO(data)).namelist()
+        except zipfile.BadZipFile:
+            return None
+        return ".xlsx" if any(n.startswith("xl/") for n in names) else ".docx"
+    if head.startswith(b"\xd0\xcf\x11\xe0"):
+        return ".doc"
+    if head.startswith(b"{\\rtf"):
+        return ".rtf"
+    return None
+
+
+def _run(data, suffix, cmd):
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
         tmp.write(data)
         tmp.flush()
-        res = subprocess.run(cmd(tmp.name), capture_output=True, text=True, timeout=90)
-        return res.stdout
+        return subprocess.run(cmd + [tmp.name] if cmd[-1] != "-" else cmd[:-1] + [tmp.name, "-"],
+                              capture_output=True, text=True, timeout=90).stdout
+
+
+class _Tables(HTMLParser):
+    """Строки таблиц из HTML (textutil): [[ячейка, ячейка, …], …]."""
+    def __init__(self):
+        super().__init__()
+        self.rows, self.row, self.cell, self.depth = [], None, None, 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr":
+            self.row = []
+        elif tag in ("td", "th") and self.row is not None:
+            self.cell = []
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th") and self.cell is not None and self.row is not None:
+            self.row.append(re.sub(r"\s+", " ", "".join(self.cell)).strip())
+            self.cell = None
+        elif tag == "tr" and self.row is not None:
+            if any(self.row):
+                self.rows.append(self.row)
+            self.row = None
+
+    def handle_data(self, d):
+        if self.cell is not None:
+            self.cell.append(d)
+
+
+def pdf_rows(text):
+    """Строки таблиц из pdftotext -layout: колонки разделены 2+ пробелами."""
+    rows = []
+    for ln in text.splitlines():
+        cells = [c.strip() for c in re.split(r"\s{2,}", ln.strip()) if c.strip()]
+        if len(cells) >= 3:
+            rows.append(cells)
+    return rows
+
+
+def xlsx_rows(data):
+    """Строки всех листов Excel (stdlib: zip + xml)."""
+    z = zipfile.ZipFile(io.BytesIO(data))
+    ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    shared = []
+    if "xl/sharedStrings.xml" in z.namelist():
+        for si in ET.fromstring(z.read("xl/sharedStrings.xml")).iter(ns + "si"):
+            shared.append("".join(t.text or "" for t in si.iter(ns + "t")))
+    rows = []
+    for name in sorted(n for n in z.namelist() if n.startswith("xl/worksheets/sheet")):
+        for r in ET.fromstring(z.read(name)).iter(ns + "row"):
+            cells = []
+            for c in r.iter(ns + "c"):
+                v = c.find(ns + "v")
+                isv = c.find(ns + "is")
+                if c.get("t") == "s" and v is not None:
+                    val = shared[int(v.text)]
+                elif isv is not None:
+                    val = "".join(t.text or "" for t in isv.iter(ns + "t"))
+                else:
+                    val = v.text if v is not None else ""
+                cells.append(re.sub(r"\s+", " ", val or "").strip())
+            if any(cells):
+                rows.append(cells)
+    return rows
+
+
+def ocr_pdf(data, max_pages=15):
+    """Скан без текстового слоя → tesseract (rus+kaz). Медленно: ~5 с на страницу."""
+    with tempfile.TemporaryDirectory() as d:
+        pdf = os.path.join(d, "in.pdf")
+        open(pdf, "wb").write(data)
+        subprocess.run(["pdftoppm", "-r", "200", "-gray", "-l", str(max_pages), "-png", pdf, os.path.join(d, "p")],
+                       capture_output=True, timeout=600)
+        out = []
+        for img in sorted(f for f in os.listdir(d) if f.endswith(".png")):
+            r = subprocess.run(["tesseract", os.path.join(d, img), "-", "-l", "rus+kaz", "--psm", "6"],
+                               capture_output=True, text=True, timeout=180)
+            out.append(r.stdout)
+        return "\n".join(out)
+
+
+def file_content(url):
+    """(текст, строки таблиц). PDF → pdftotext; DOC/DOCX/RTF → textutil (txt и html для таблиц)."""
+    data = _download(url)
+    k = _kind(data)
+    if k == ".pdf":
+        text = _run(data, k, ["pdftotext", "-layout", "-"])
+        if len(text.strip()) < 200:  # скан без текста
+            text = "(распознано со скана, возможны ошибки)\n" + ocr_pdf(data)
+        return text, pdf_rows(text)
+    if k == ".xlsx":
+        rows = xlsx_rows(data)
+        return "\n".join(" | ".join(r) for r in rows), rows
+    if k in (".docx", ".doc", ".rtf"):
+        text = _run(data, k, ["textutil", "-convert", "txt", "-stdout"])
+        p = _Tables()
+        p.feed(_run(data, k, ["textutil", "-convert", "html", "-stdout"]))
+        return text, p.rows
+    return "", []
+
+
+def file_text(url):
+    return file_content(url)[0]
 
 
 pdf_text = file_text
@@ -160,17 +275,19 @@ def lot_techspec(lot):
         except Exception as e:
             result["spec"] = {"error": str(e), "url": mine[0]["url"]}
     else:  # работы/услуги: свои ТЗ и сметы в Word/PDF — склеиваем текст
-        parts = []
+        parts, tables = [], []
         for f in specs[:5]:
             try:
-                t = file_text(f["url"]).strip()
+                t, rows = file_content(f["url"])
+                t = t.strip()
             except Exception as e:
-                t = f"(не удалось прочитать: {e})"
+                t, rows = f"(не удалось прочитать: {e})", []
             if t:
                 parts.append(f"══ {f['name']} ══\n{t}")
+            tables += [[f["name"]] + r for r in rows[:400]]  # первая ячейка — имя файла
         if parts:
             text = "\n\n".join(parts)
-            result["spec"] = {"qty": None, "unit": None, "term": None,
+            result["spec"] = {"qty": None, "unit": None, "term": None, "tables": tables[:1500],
                               "desc": text[:15000], "raw": text[:40000], "free_form": True}
     return result
 

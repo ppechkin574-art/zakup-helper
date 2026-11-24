@@ -140,7 +140,7 @@ function render(){
     <td>${l._r.verdict?`<span class="tag v-${l._r.verdict}">${VLAB[l._r.verdict]} ${pct(l._r.margin)}</span>
       <div class="small mut" style="margin-top:3px">${fmt(l._r.net)} ₸ при скидке ${pct(1-l._r.bid/l.price)}</div>
       <div class="small mut">без скидки: ${fmt(l._f.net)} ₸ (${pct(l._f.margin)})</div>
-      <div class="small mut">${l.calc?'ручной расчёт':`авто · ${TIER[l.auto.tier]||''}${l.auto.rough?' · грубая':''}`}</div>`
+      <div class="small mut">${l.calc?'ручной расчёт':`авто · ${l.auto.bom?'по таблице ТЗ'+(l.auto.rough?' · есть неподобранное':''):(TIER[l.auto.tier]||'')+(l.auto.rough?' · грубая':'')}`}</div>`
       :`<span class="small mut" title="${esc((l.auto||{}).reason||'')}">нет оценки${l.auto&&l.auto.reason?': '+esc(l.auto.reason.slice(0,60)):''}</span>`}</td></tr>`).join('');
   $('#stat').textContent=`${L.length} лотов на ${fmt(L.reduce((s,l)=>s+l.price,0))} ₸`;
 }
@@ -153,7 +153,7 @@ async function open(id){
   const a=l.auto||{};
   const autoBox=l.calc?`<div class="small" style="margin-bottom:10px">Ручной расчёт. <button id="btnReset">Вернуть автоподбор</button></div>`
     :a.ok?`<div class="small" style="margin-bottom:10px;padding:8px 10px;border-radius:8px;background:var(--bg)">
-      <b>Автоподбор:</b> ${esc(a.tier)}${a.rough?' · <span style="color:var(--warn)">грубая оценка</span>':''}
+      <b>Автоподбор:</b> ${a.bom?'смета по таблице ТЗ':esc(a.tier)}${a.rough?` · <span style="color:var(--warn)">${a.bom?'есть неподобранное':'грубая оценка'}</span>`:''}
       ${(a.notes||[]).map(n=>`<div class="mut">• ${esc(n)}</div>`).join('')}
       <div class="mut">Любая правка ниже превращает расчёт в ручной — автоподбор его больше не трогает.</div></div>`
     :`<div class="small mut" style="margin-bottom:10px">Автоподбор не оценил лот: ${esc(a.reason||'ещё не запускался')}</div>`;
@@ -221,7 +221,7 @@ function supRender(list,note){SUP=list;const need=+$('#c_qty').value||1;
 async function supSearch(q){if(!q.trim())return;$('#sup').textContent='Ищу…';supRender(await api('/api/supplier/search?q='+encodeURIComponent(q)),'')}
 function renderItems(){
   $('#items').innerHTML=ITEMS.length?`<table class="small" style="margin-top:10px"><tr><th>Позиция поставщика</th><th class="num">Цена</th><th class="num" style="width:70px">Кол-во</th><th class="num">Сумма</th><th></th></tr>
-  ${ITEMS.map((x,i)=>`<tr><td>${esc(x.name)}${x.is_camera?' <span class="tag">камера</span>':''}${x.cost_src&&x.cost_src!=='платина'?` <span class="tag v-warn">${esc(x.cost_src)}</span>`:''}${x.stock!=null&&x.stock<x.qty?` <span class="tag v-bad">на складе ${x.stock}</span>`:''}</td><td class="num">${fmt(x.cost)}</td>
+  ${ITEMS.map((x,i)=>`<tr><td>${esc(x.name)}${x.src?`<div class="mut">из ТЗ: ${esc(x.src)}${x.tier?' · '+esc(x.tier):''}</div>`:''}${x.is_camera?' <span class="tag">камера</span>':''}${x.cost_src&&x.cost_src!=='платина'?` <span class="tag v-warn">${esc(x.cost_src)}</span>`:''}${x.stock!=null&&x.stock<x.qty?` <span class="tag v-bad">на складе ${x.stock}</span>`:''}</td><td class="num">${fmt(x.cost)}</td>
   <td><input type="number" data-q="${i}" value="${x.qty}"></td><td class="num">${fmt(x.cost*x.qty)}</td><td><button data-d="${i}">✕</button></td></tr>`).join('')}</table>`:'';
   $('#items').querySelectorAll('input[data-q]').forEach(el=>{el.oninput=()=>{ITEMS[+el.dataset.q].qty=+el.value;recalc()};el.onchange=()=>renderItems()});
   $('#items').querySelectorAll('button[data-d]').forEach(b=>b.onclick=()=>{ITEMS.splice(+b.dataset.d,1);renderItems();recalc()});
