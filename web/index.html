@@ -117,6 +117,24 @@ details summary{cursor:pointer;color:var(--acc-ink)}
 .doc table td{border-bottom:1px solid var(--line)}
 .seg{display:inline-flex;background:var(--fill);border-radius:10px;padding:2px}
 .seg button{background:transparent;color:var(--ink);border-radius:8px}.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+/* панель параметров — поверх правой колонки, список слева виден и пересчитывается сразу */
+main{position:relative}
+#params{position:absolute;top:0;right:0;bottom:0;width:min(560px,100%);overflow:auto;background:var(--card);border-radius:var(--r);
+  box-shadow:0 0 0 1px rgba(0,0,0,.06),0 8px 30px rgba(0,0,0,.14);padding:18px 20px;z-index:5}
+#params .phead{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+#params h2{font:700 19px/1.2 "SF UI Display",-apple-system,sans-serif;margin:0;flex:1;display:flex;gap:8px;align-items:center}
+#params h2 .ic{color:var(--acc)}
+#pClose{background:none;padding:4px;color:var(--mut);font-size:20px}
+.pgroup{border-top:1px solid var(--line);padding:12px 0 6px}
+.pg{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);margin-bottom:8px}
+.prow{display:grid;grid-template-columns:1fr 170px;gap:12px;align-items:center;padding:4px 0}
+.pl{display:flex;align-items:center;gap:6px}
+.pin{display:flex;align-items:center;gap:6px}.pin input{flex:1}.pin .u{width:62px;font-size:12px;color:var(--mut)}
+.tip{position:relative;color:var(--mut);display:inline-flex;cursor:help;outline:none}
+.tip:hover,.tip:focus{color:var(--acc)}
+.tipbox{display:none;position:absolute;left:-8px;top:calc(100% + 6px);width:300px;background:#1C1C1E;color:#fff;font-size:12.5px;line-height:1.45;
+  padding:10px 12px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:10;font-weight:400}
+.tip:hover .tipbox,.tip:focus .tipbox{display:block}
 @media (max-width:900px){body{height:auto}main{grid-template-columns:1fr}#list{max-height:60vh}}
 </style>
 </head>
@@ -130,7 +148,7 @@ details summary{cursor:pointer;color:var(--acc-ink)}
   <span style="flex:1 1 0"></span>
   <span id="stat" class="small mut"></span>
   <button id="btnHelp"><span data-ic="question-circle"></span>Как считается</button>
-  <button id="btnSet"><span data-ic="settings"></span>Настройки</button>
+  <button id="btnSet"><span data-ic="settings"></span>Параметры</button>
   <button class="pri" id="btnRef"><span data-ic="refresh"></span><span class="lbl">Обновить</span></button>
 </header>
 <main>
@@ -140,6 +158,7 @@ details summary{cursor:pointer;color:var(--acc-ink)}
     <div id="tb"></div>
   </div>
   <div id="detail"><p class="mut">Выберите лот слева.</p></div>
+  <aside id="params" hidden></aside>
 </main>
 <script>
 // ICONS-START
@@ -151,8 +170,8 @@ const $=s=>document.querySelector(s);
 const fmt=n=>n==null||isNaN(n)?'—':Math.round(n).toLocaleString('ru-RU');
 const pct=n=>n==null||isNaN(n)?'—':(n*100).toFixed(1)+'%';
 // правила — docs/ECONOMICS.md
-const DEF={tax:'simple',vat:0.16,kpn:0.20,simple:0.04,target:0.15,bidSec:0.01,perfSec:0.03,logistics:0.03,
-  inst1:20000,instT1:10,inst2:18000,instT2:30,inst3:15000,toRate:'',bin:''};
+const DEF={tax:'simple',vat:0.16,kpn:0.20,simple:0.04,target:0.15,warnFrom:0.05,bidSec:0.01,perfSec:0.03,logistics:0.03,
+  inst1:20000,instT1:10,inst2:18000,instT2:30,inst3:15000,toRate:'',discNoHist:0.10,minDeals:5,discSingle:0,bin:''};
 // монтаж под ключ за камеру: ставка зависит от числа камер на объекте и применяется ко всем камерам
 function instRate(n){return n>S.instT2?S.inst3:n>S.instT1?S.inst2:S.inst1}
 function instTier(n){return n>S.instT2?`от ${S.instT2+1} камер`:n>S.instT1?`${S.instT1+1}–${S.instT2} камер`:`до ${S.instT1} камер`}
@@ -180,7 +199,16 @@ function defaultCams(l,items){
   if(fromItems)return fromItems;
   return /камер/i.test(l.name||'')?(l.qty||l.qty_api||0):0;
 }
-function defaultBid(l){const d=l.median_discount;return l.price*(1-(d!=null&&d>0?d:0.10))}
+// типичная скидка победителей (docs/ECONOMICS.md, 2.3): из одного источника → свой параметр;
+// иначе медиана по тому же способу, если договоров хватает; иначе по коду; иначе — параметр «истории нет»
+function lotDisc(l){
+  if(/одного источника/i.test(l.method||''))return {d:S.discSingle,src:'из одного источника'};
+  const m=l.disc_method;
+  if(m&&m.median!=null&&m.n>=S.minDeals)return {d:m.median,src:`по способу «${l.method}», ${m.n} договоров`};
+  if(l.disc_code!=null)return {d:l.disc_code,src:'по коду товара, все конкурентные способы'};
+  return {d:S.discNoHist,src:'истории нет'};
+}
+function defaultBid(l){return l.price*(1-Math.max(0,lotDisc(l).d))}
 // расчёт лота: ручной, если вы его меняли; иначе — из автоподбора (docs/AUTOPICK.md)
 function fromAuto(l){const a=l.auto;if(!a||!a.ok)return null;
   return {items:(a.items||[]).map(x=>({...x})),...(a.cams?{cams:a.cams}:{}),_auto:true}}
@@ -214,7 +242,7 @@ function compute(l,c){
   else minBid=costNet/(1-S.simple-S.target);
   const needCash=equip+other+logi+bid*(S.bidSec+S.perfSec);
   const known=equip>0||other>0;
-  const verdict=!known?null:margin>=S.target?'good':margin>=0.05?'warn':'bad';
+  const verdict=!known?null:margin>=S.target?'good':margin>=S.warnFrom?'warn':'bad';
   return {cams,months,isTO,labor,bid,qty,equip,other,logi,tax,net,margin,minBid,needCash,verdict,costNet,revNet}
 }
 const VLAB={good:'выгодно',warn:'на грани',bad:'невыгодно'};
@@ -273,7 +301,7 @@ async function open(id){
     <div class="status" id="calcStatus">${calcStatus(l)}</div>
     <div id="resTiles"></div>
     <div id="resWarn"></div>
-    <div class="bidrow"><span class="fl">${ic('hand-money')}<b>Наша цена в заявке, ₸</b><div class="small mut">по умолчанию: сумма лота − ${l.median_discount!=null?`${pct(l.median_discount)} (${esc(l.discount_src)})`:'10% (истории нет)'}</div></span><input type="number" id="c_bid" value="${Math.round(c.bid||defaultBid(l))}"></div>
+    <div class="bidrow"><span class="fl">${ic('hand-money')}<b>Наша цена в заявке, ₸</b><div class="small mut">по умолчанию: сумма лота − ${pct(Math.max(0,lotDisc(l).d))} (${esc(lotDisc(l).src)})</div></span><input type="number" id="c_bid" value="${Math.round(c.bid||defaultBid(l))}"></div>
     <details class="more" id="itemsBox"><summary>${ic('alt-arrow-down','chev')}Позиции сметы <span class="cnt" id="itemsCnt"></span></summary><div class="in"><div id="items"></div></div></details>
     ${more('Параметры расчёта','',`<div class="grid2">
       <span class="fl">${ic('box-minimalistic')}Количество, ${esc(sp.unit||'ед.')}</span><input type="number" id="c_qty" value="${c.qty}">
@@ -361,7 +389,7 @@ function histHtml(h,l){
   if(!h)return '<span class="mut">Ещё собирается…</span>';
   const d=h.deals||[];
   return `<div class="kv">
-    <span class="k">${ic('sale-square')}Типичная скидка</span><span><span class="keyfig">${pct(l.median_discount)}</span> <span class="mut small">${esc(l.discount_src||'')} · за 6 мес.</span></span>
+    <span class="k">${ic('sale-square')}Типичная скидка</span><span><span class="keyfig">${pct(lotDisc(l).d)}</span> <span class="mut small">${esc(lotDisc(l).src)} · за 6 мес.</span></span>
   </div>
   ${more('Кто выигрывает',h.top_suppliers.length,`<div class="kv small">
     <span class="k">${ic('document')}Договоров по коду</span><span>${h.contracts_total}</span>
@@ -372,28 +400,65 @@ function histHtml(h,l){
 }
 
 // ---------- настройки ----------
+// ---------- параметры бизнес-логики (docs/ECONOMICS.md) ----------
+// u: '%' — хранится долей (0.16), показывается процентом; '₸' / 'шт' — как есть
+const PARAMS=[
+  {g:'Налоги',items:[
+    {k:'simple',l:'Упрощёнка, с оборота',u:'%',when:'simple',t:'Налог на упрощёнке: процент от нашей цены в заявке. НДС при этом не платим и не зачитываем — закупка у поставщика идёт в расходы вместе с его НДС. Маслихат может менять ставку — сверьте с бухгалтером.'},
+    {k:'vat',l:'НДС',u:'%',when:'our',t:'Ставка НДС (2026 — 16%). Из нашей цены вычитается НДС, а НДС поставщика уходит в зачёт.'},
+    {k:'kpn',l:'КПН, с прибыли',u:'%',when:'our',t:'Корпоративный подоходный налог: процент от прибыли до налога. Если прибыль отрицательная, налога нет.'},
+  ]},
+  {g:'Наша цена в заявке',items:[
+    {k:'minDeals',l:'Скидка по способу закупки — от',u:'договоров',step:1,t:'Типичная скидка берётся по договорам с тем же кодом товара и тем же способом закупки (запрос ценовых предложений, тендер…), если таких договоров не меньше этого числа. Иначе — общая медиана по коду.'},
+    {k:'discSingle',l:'Скидка «из одного источника»',u:'%',t:'Для закупок из одного источника конкуренции нет, цену почти не снижают. Наша цена = сумма лота минус этот процент.'},
+    {k:'discNoHist',l:'Скидка, если истории нет',u:'%',t:'Если по коду товара за 6 месяцев нет ни одного договора, наша цена = сумма лота минус этот процент.'},
+  ]},
+  {g:'Расходы',items:[
+    {k:'logistics',l:'Логистика, от оборудования',u:'%',t:'Доставка оборудования: процент от суммы закупки у поставщика. Дальность выезда отдельно не считается — дорогую дорогу вписывайте в «Прочее» в карточке лота.'},
+    {k:'instT1',l:'Монтаж: малый объект — до',u:'камер',step:1,t:'Граница первой ступени шкалы монтажа. Если камер на объекте не больше этого числа, действует первая ставка.'},
+    {k:'inst1',l:'Ставка за камеру, малый объект',u:'₸',step:1000,t:'Монтаж под ключ за одну камеру: камера, регистратор, коммутатор, настройка, налоги на монтажников. Прокладка не считается, кабель идёт в смету по цене поставщика.'},
+    {k:'instT2',l:'Средний объект — до',u:'камер',step:1,t:'Граница второй ступени. От первой границы до этого числа камер действует вторая ставка, выше — третья.'},
+    {k:'inst2',l:'Ставка за камеру, средний объект',u:'₸',step:1000,t:'Монтаж под ключ за камеру на среднем объекте. Ставка применяется ко всем камерам объекта, а не только к тем, что выше границы.'},
+    {k:'inst3',l:'Ставка за камеру, большой объект',u:'₸',step:1000,t:'Монтаж под ключ за камеру на большом объекте — выше второй границы. Применяется ко всем камерам.'},
+    {k:'toRate',l:'ТО: за камеру в месяц',u:'₸',step:100,empty:true,t:'Наша себестоимость обслуживания одной камеры в месяц. Стоимость ТО = камеры × месяцы × ставка. Пусто — лоты на ТО не оцениваются.'},
+  ]},
+  {g:'Оценка лота',items:[
+    {k:'target',l:'«Выгодно» — от',u:'%',t:'Рентабельность = чистая прибыль / наша цена в заявке. От этого порога лот помечается «выгодно» (зелёный). По нему же считается минимальная цена.'},
+    {k:'warnFrom',l:'«На грани» — от',u:'%',t:'От этого порога до порога «выгодно» лот помечается «на грани» (оранжевый). Ниже — «невыгодно» (красный).'},
+  ]},
+  {g:'Деньги на старте',items:[
+    {k:'bidSec',l:'Обеспечение заявки',u:'%',t:'Процент от цены заявки, который замораживается на время торгов. В прибыль не входит, только в справку «Деньги на старте».'},
+    {k:'perfSec',l:'Обеспечение договора',u:'%',t:'Процент от цены договора, который замораживается до исполнения. В прибыль не входит, только в справку «Деньги на старте».'},
+  ]},
+];
+const showV=(p,v)=>v===''||v==null?'':p.u==='%'?+(v*100).toFixed(4):v;
+const readV=(p,x)=>x===''?(p.empty?'':S[p.k]):p.u==='%'?(+x)/100:+x;
+let paramT;
 function settings(){
-  $('#detail').innerHTML=`<div class="card"><h3>${ic('settings')}Настройки расчёта</h3>
-  <div style="margin-bottom:12px" class="seg"><button data-t="our" class="${S.tax==='our'?'on':''}">Плательщик НДС</button><button data-t="simple" class="${S.tax==='simple'?'on':''}">Упрощёнка</button></div>
-  <div class="grid2">
-    <span class="fl">${ic('percent')}НДС</span><input type="number" step="0.01" id="s_vat" value="${S.vat}">
-    <span class="fl">${ic('percent')}КПН (для режима с НДС)</span><input type="number" step="0.01" id="s_kpn" value="${S.kpn}">
-    <span class="fl">${ic('percent')}Упрощёнка, % с оборота</span><input type="number" step="0.01" id="s_simple" value="${S.simple}">
-    <span class="fl">${ic('graph-up')}Целевая рентабельность</span><input type="number" step="0.01" id="s_target" value="${S.target}">
-    <span class="fl">${ic('shield-check')}Обеспечение заявки</span><input type="number" step="0.001" id="s_bidSec" value="${S.bidSec}">
-    <span class="fl">${ic('shield-check')}Обеспечение исполнения договора</span><input type="number" step="0.001" id="s_perfSec" value="${S.perfSec}">
-    <span class="fl">${ic('delivery')}Логистика по умолчанию, доля от оборудования</span><input type="number" step="0.01" id="s_logistics" value="${S.logistics}">
-    <span class="fl">${ic('videocamera-record')}Монтаж под ключ за камеру, до <input type="number" id="s_instT1" value="${S.instT1}" style="width:56px"> камер, ₸</span><input type="number" step="1000" id="s_inst1" value="${S.inst1}">
-    <span class="fl">${ic('videocamera-record')}… до <input type="number" id="s_instT2" value="${S.instT2}" style="width:56px"> камер, ₸</span><input type="number" step="1000" id="s_inst2" value="${S.inst2}">
-    <span class="fl">${ic('videocamera-record')}… больше, ₸</span><input type="number" step="1000" id="s_inst3" value="${S.inst3}">
-    <span class="fl">${ic('settings-minimalistic')}ТО: за камеру в месяц, ₸ <span class="small mut">(пусто = ТО не оценивается)</span></span><input type="number" step="100" id="s_toRate" value="${S.toRate}" placeholder="не задана">
-    <span class="fl">${ic('user-id')}БИН нашей компании <span class="small mut">(пока не используется)</span></span><input type="text" id="s_bin" value="${esc(S.bin||'')}" placeholder="12 цифр">
-  </div>
-  <p class="small mut">Доли вводятся как 0.16 = 16%. Ставки по Налоговому кодексу РК 2026 (НДС 16%, КПН 20%, упрощёнка 4%) — сверьте со своим бухгалтером: маслихат может менять ставку упрощёнки.</p>
-  <button class="pri" id="s_save">Сохранить</button></div>`;
-  document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{S.tax=b.dataset.t;settings()});
-  $('#s_save').onclick=async()=>{['vat','kpn','simple','target','bidSec','perfSec','logistics','inst1','instT1','inst2','instT2','inst3'].forEach(k=>S[k]=+$('#s_'+k).value);S.toRate=$('#s_toRate').value===''?'':+$('#s_toRate').value;S.bin=$('#s_bin').value.trim();await api('/api/settings',S);render();$('#detail').innerHTML='<p class="mut">Сохранено.</p>'};
+  const box=$('#params');box.hidden=false;
+  box.innerHTML=`<div class="phead"><h2>${ic('settings')}Параметры расчёта</h2><span id="pSaved" class="small mut"></span><button id="pClose" title="Закрыть (Esc)">${ic('close-circle')}</button></div>
+  <p class="small mut" style="margin:0 0 14px">Изменения сохраняются и применяются сразу. Наведите на ${ic('info-circle')}, чтобы прочитать, за что отвечает параметр.</p>
+  <div class="pgroup"><div class="pg">Налоговый режим</div>
+    <div class="seg" id="pTax"><button data-t="simple" class="${S.tax==='simple'?'on':''}">Упрощёнка</button><button data-t="our" class="${S.tax==='our'?'on':''}">Плательщик НДС</button></div></div>
+  ${PARAMS.map(g=>`<div class="pgroup"><div class="pg">${g.g}</div>${g.items.filter(p=>!p.when||p.when===S.tax).map(p=>`
+    <div class="prow"><span class="pl">${p.l}<span class="tip" tabindex="0">${ic('info-circle')}<span class="tipbox">${p.t}</span></span></span>
+      <span class="pin"><input type="number" step="${p.step||(p.u==='%'?0.5:1)}" data-k="${p.k}" value="${showV(p,S[p.k])}" ${p.empty?'placeholder="не задана"':''}><span class="u">${p.u}</span></span></div>`).join('')}</div>`).join('')}
+  <button id="pReset" style="margin-top:6px">${ic('refresh')}Вернуть значения по умолчанию</button>`;
+  box.querySelectorAll('input[data-k]').forEach(el=>el.addEventListener('input',()=>{
+    const p=PARAMS.flatMap(g=>g.items).find(x=>x.k===el.dataset.k);S[p.k]=readV(p,el.value);applyParams()}));
+  box.querySelectorAll('#pTax button').forEach(b=>b.onclick=()=>{S.tax=b.dataset.t;applyParams();settings()});
+  $('#pClose').onclick=closeParams;
+  $('#pReset').onclick=()=>{if(!confirm('Вернуть все параметры к значениям по умолчанию?'))return;Object.assign(S,DEF);applyParams();settings()};
 }
+// сразу пересчитать список и открытую карточку, сохранить через полсекунды
+function applyParams(){
+  render();
+  if(CUR&&$('#resTiles')){$('#c_bid').value=Math.round((CUR.calc&&CUR.calc.bid)||defaultBid(CUR));recalc(true)}
+  $('#pSaved').textContent='сохраняю…';
+  clearTimeout(paramT);paramT=setTimeout(async()=>{await api('/api/settings',S);$('#pSaved').textContent='✓ сохранено'},500);
+}
+function closeParams(){$('#params').hidden=true;if(CUR)open(CUR.id)}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#params').hidden)closeParams()});
 
 async function load(){
   LOTS=await api('/api/lots');
@@ -414,8 +479,8 @@ document.querySelectorAll('#sortSeg button').forEach(b=>b.onclick=()=>{const k=b
   sortDir=sortK===k?-sortDir:(k==='end'?1:-1);sortK=k;document.querySelectorAll('#sortSeg button').forEach(x=>x.classList.toggle('on',x===b));render()});
 ['#fCat','#fReg','#fQ','#fMin'].forEach(s=>$(s).addEventListener('input',render));
 $('#btnRef').onclick=async()=>{await api('/api/refresh',{});poll()};
-$('#btnSet').onclick=settings;
-$('#btnHelp').onclick=async()=>{const md=await (await fetch('/api/doc')).text();$('#detail').innerHTML=`<div class="card doc">${mdToHtml(md)}</div>`};
+$('#btnSet').onclick=()=>$('#params').hidden?settings():closeParams();
+$('#btnHelp').onclick=async()=>{$('#params').hidden=true;const md=await (await fetch('/api/doc')).text();$('#detail').innerHTML=`<div class="card doc">${mdToHtml(md)}</div>`};
 // мини-рендер markdown для справки (заголовки, списки, таблицы, жирный, код)
 function mdToHtml(md){
   const inl=t=>esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');

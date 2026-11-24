@@ -17,7 +17,6 @@ ROOT = Path(__file__).resolve().parent
 REFRESH_EVERY = 30 * 60          # раз в полчаса перечитываем открытые лоты
 HISTORY_TTL = 7 * 24 * 3600      # историю цен обновляем раз в неделю
 HISTORY_DAYS = 180
-MIN_METHOD_DEALS = 5             # медиана по способу закупки — если таких договоров не меньше 5
 
 state = {"running": False, "stage": "", "error": None}
 
@@ -140,13 +139,9 @@ def lot_summary(row):
     auto, _ = store.get_json("auto", "lot_id", lot["id"])
     codes = [e["code"] for e in lot.get("enstrus") or []]
     hist = store.get_json("history", "enstru_code", codes[0])[0] if codes else None
-    # типичная скидка: по тому же способу закупки, если договоров хватает, иначе общая по коду
+    # данные для типичной скидки; какую брать — решает панель по параметрам (docs/ECONOMICS.md)
     method = lot.get("purchase_method_name")
-    bm = ((hist or {}).get("by_method") or {}).get(method) or {}
-    if bm.get("n", 0) >= MIN_METHOD_DEALS and bm.get("median") is not None:
-        disc, disc_src = bm["median"], f"по способу «{method}», {bm['n']} договоров"
-    else:
-        disc, disc_src = (hist or {}).get("median_discount"), "по коду товара, все конкурентные способы"
+    by_method = ((hist or {}).get("by_method") or {}).get(method)
     return {
         "id": lot["id"], "category": row["category"], "first_seen": row["first_seen"],
         "name": lot.get("name_ru") or lot.get("name_kk") or "", "announcement": lot.get("announcement_name_ru") or lot.get("announcement_name_kk") or "",
@@ -162,7 +157,7 @@ def lot_summary(row):
         "customer_bin": ", ".join(c.get("bin") or "" for c in lot.get("customers") or []),
         "ann_number": lot.get("announcement_number"), "ann_ext": lot.get("announcement_external_id"),
         "lot_number": lot.get("lot_number"), "dumping_price": lot.get("dumping_price"),
-        "median_discount": disc, "discount_src": disc_src if disc is not None else None,
+        "disc_code": (hist or {}).get("median_discount"), "disc_method": by_method,
         "west": source.west(lot),
         # нужен ли монтаж: работы/ремонт — да; поставка — если в спеке есть установка
         "install": row["category"] in ("монтаж", "ремонт") or bool(
