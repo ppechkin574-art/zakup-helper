@@ -125,6 +125,37 @@ def run_autopick():
     store.meta_set("autopick", {"at": time.time(), "lots": n})
 
 
+def autopick_one(lid):
+    row = store.q("SELECT * FROM lots WHERE id=?", (lid,))[0]
+    s = lot_summary(row)
+    spec = (store.get_json("techspec", "lot_id", lid)[0] or {}).get("spec") or {}
+    try:
+        res = autopick.autopick(s, spec)
+    except Exception as e:
+        traceback.print_exc()
+        res = {"ok": False, "reason": f"ошибка автоподбора: {e}"}
+    store.put_json("auto", "lot_id", lid, res)
+
+
+def upload_techspec(lid, name, data):
+    """Файл ТЗ от владельца: читаем как обычное ТЗ, добавляем к загруженным и пересчитываем лот."""
+    if not store.q("SELECT id FROM lots WHERE id=?", (lid,)):
+        raise ValueError("нет такого лота")
+    if len(data) > 40 * 1024 * 1024:
+        raise ValueError("файл больше 40 МБ")
+    text, rows = source.content_of(data)
+    if not text.strip():
+        raise ValueError("не смог прочитать файл: нужен PDF, Word (doc, docx, rtf) или Excel (xlsx)")
+    ts = store.get_json("techspec", "lot_id", lid)[0] or {"files": [], "spec": None}
+    ups = [u for u in ts.get("uploads") or [] if u["name"] != name]
+    ups.append({"name": name, "text": text[:40000], "rows": rows[:400], "at": time.time()})
+    ts["uploads"] = ups
+    ts["spec"] = source.spec_from_uploads(ups)
+    store.put_json("techspec", "lot_id", lid, ts)
+    autopick_one(lid)
+    return {"ok": True, "chars": len(text), "rows": len(rows), "files": [u["name"] for u in ups]}
+
+
 def loop():
     while True:
         refresh()
@@ -189,7 +220,7 @@ def lot_flags(lot, ts, auto):
     return {
         "alarm": len(ALARM_RX.findall(STD_NAME_RX.sub(" ", name + " " + text))) >= 2,  # сигнализация в самом заказе
         "license": bool(LICENSE_RX.search(text)),
-        "no_docs": ts is not None and not (ts.get("files") or []),  # None — ещё не скачивали
+        "no_docs": ts is not None and not (ts.get("files") or ts.get("uploads")),  # None — ещё не скачивали
         "scan": "распознано со скана" in text[:400],
         "offtopic": bool(OFFTOPIC_RX.search(reason)),
     }
@@ -269,6 +300,15 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         p = self.path
+        if p.startswith("/api/upload-ts/"):  # ТЗ, скачанное владельцем вручную (тело — сам файл)
+            from urllib.parse import parse_qs, unquote, urlparse
+            lid = int(urlparse(p).path.rsplit("/", 1)[1])
+            name = unquote((parse_qs(urlparse(p).query).get("name") or ["ТЗ"])[0])[:120]
+            data = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            try:
+                return self.send(200, upload_techspec(lid, name, data))
+            except ValueError as e:
+                return self.send(400, {"error": str(e)})
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
         if p == "/api/refresh":
             threading.Thread(target=refresh, daemon=True).start()

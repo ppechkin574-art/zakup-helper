@@ -212,8 +212,12 @@ def ocr_pdf(data, max_pages=15):
 
 
 def file_content(url):
+    """(текст, строки таблиц) файла по ссылке."""
+    return content_of(_download(url))
+
+
+def content_of(data):
     """(текст, строки таблиц). PDF → pdftotext; DOC/DOCX/RTF → textutil (txt и html для таблиц)."""
-    data = _download(url)
     k = _kind(data)
     if k == ".pdf":
         text = _run(data, k, ["pdftotext", "-layout", "-"])
@@ -298,10 +302,22 @@ def lot_techspec(lot):
                 parts.append(f"══ {f['name']} ══\n{t}")
             tables += [[f["name"]] + r for r in rows[:400]]  # первая ячейка — имя файла
         if parts:
-            text = "\n\n".join(parts)
-            result["spec"] = {"qty": None, "unit": None, "term": None, "tables": tables[:1500],
-                              "desc": text[:15000], "raw": text[:40000], "free_form": True}
+            result["spec"] = spec_from_parts(parts, tables)
     return result
+
+
+def spec_from_parts(parts, tables):
+    """ТЗ работ/услуг из нескольких файлов: склеенный текст + строки таблиц (первая ячейка — имя файла)."""
+    text = "\n\n".join(parts)
+    return {"qty": None, "unit": None, "term": None, "tables": tables[:1500],
+            "desc": text[:15000], "raw": text[:40000], "free_form": True}
+
+
+def spec_from_uploads(uploads):
+    """ТЗ из файлов, которые владелец загрузил сам (лоты Самрук-Қазыны, сканы)."""
+    parts = [f"══ {u['name']} ══\n{u['text']}" for u in uploads if u["text"].strip()]
+    tables = [[u["name"]] + r for u in uploads for r in u["rows"][:400]]
+    return spec_from_parts(parts, tables) if parts else None
 
 
 # ---------- история цен по коду ЕНС ТРУ ----------

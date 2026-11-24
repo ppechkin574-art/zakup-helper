@@ -183,6 +183,9 @@ button.done{background:var(--goodbg);color:var(--good)}
 .ghead{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin:10px 2px 0}
 .ghead:first-child{margin-top:0}.ghead span:last-child{margin-left:auto;font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut)}
 .ghead.g-good{color:var(--good)}.ghead.g-warn{color:var(--warn)}.ghead.g-bad{color:var(--bad)}.ghead.g-manual{color:#3A3A3C}
+.links{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.upl{display:inline-flex;gap:6px;align-items:center;background:var(--fill);color:var(--acc-ink);border-radius:10px;padding:6px 12px;cursor:pointer;font-weight:500;font-size:13px}
+.upl:hover{background:var(--line)}
 .grpline{display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center;background:var(--fill);border-radius:10px;padding:8px 12px;margin:-4px 0 12px;font-size:13px}
 .lot .why{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:var(--mut);margin-top:-4px}
 @media (max-width:900px){body{height:auto}main{grid-template-columns:1fr}#list{max-height:60vh}}
@@ -306,7 +309,7 @@ function lotGroup(l){const f=l.flags||{},r=l._r||compute(l,effCalc(l)),a=l.auto|
     if(l.category==='ТО')return {g:'manual',why:'обслуживание — считается вручную'};
   }
   if(r.verdict)return {g:r.verdict};
-  if(f.no_docs)return {g:'manual',why:l.system==='SKK'?'ТЗ на портале Самрук-Қазына, сюда не скачивается':'к лоту нет документов'};
+  if(f.no_docs)return {g:'manual',why:l.system==='SKK'?'ТЗ на портале Самрук-Қазына — скачайте и загрузите в карточке лота':'к лоту нет документов — можно загрузить ТЗ в карточке'};
   if(f.scan)return {g:'manual',why:'ТЗ — скан без списка оборудования'};
   if(/типа «не определён»/.test(a.reason||''))return {g:'manual',why:`такого товара нет у поставщика${(a.models||[]).length?' (модель '+a.models.slice(0,2).join(', ')+')':''} — цену закупки вписать вручную`};
   return {g:'manual',why:!l.auto?'ещё обрабатывается — ТЗ и подбор появятся после обновления':a.reason||'нет себестоимости'};
@@ -354,9 +357,13 @@ async function open(id){
     <div class="kv">
       <span class="k">${ic('clock-circle')}Приём до</span><span>${new Date(l.end).toLocaleString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})} · <span class="left ${new Date(l.end)-Date.now()<864e5?'urgent':''}" data-end="${l.end}">осталось ${leftText(l.end)}</span></span>
       <span class="k">${ic('wallet-money')}Сумма лота</span><span><b>${fmt(l.price)} ₸</b></span>
-      <span class="k">${ic('map-point')}Место</span><span>${esc(place((l.addresses||[])[0]||l.region))}</span>
+      <span class="k">${ic('map-point')}Место</span><span>${esc(place((l.addresses||[])[0]||l.region))||'<span class="mut">не указано</span>'}</span>
     </div>
-    <div style="margin-top:12px">${l.system==='ЭГЗ'?`<a href="https://old.goszakup.gov.kz/ru/announce/index/${l.ann_ext}" target="_blank">Открыть на портале ↗</a>`:`<span class="mut small">Площадка ${esc(l.system)}: ищите № ${esc(l.ann_number)} на <a href="https://zakup.gov.kz" target="_blank">zakup.gov.kz</a></span>`}</div>
+    <div class="links">${l.system==='ЭГЗ'?`<a href="https://old.goszakup.gov.kz/ru/announce/index/${l.ann_ext}" target="_blank">Открыть на портале ↗</a>`
+      :l.system==='SKK'?`<a href="https://zakup.sk.kz/#/ext(popup:item/${encodeURIComponent(l.ann_number)}/advert)" target="_blank">Открыть закупку на zakup.sk.kz ↗</a>`
+      :`<span class="mut small">Площадка ${esc(l.system)}: ищите № ${esc(l.ann_number)} на <a href="https://zakup.gov.kz" target="_blank">zakup.gov.kz</a></span>`}
+      <label class="upl" title="PDF, Word или Excel — программа прочитает ТЗ и пересчитает лот">${ic('document')}Загрузить ТЗ<input type="file" id="tsFile" multiple accept=".pdf,.doc,.docx,.rtf,.xlsx" hidden></label>
+      <span id="tsUp" class="small mut">${((l.techspec||{}).uploads||[]).length?'загружено: '+l.techspec.uploads.map(u=>esc(u.name)).join(', '):''}</span></div>
     ${more('Подробнее о лоте','',`<div class="kv small">
       <span class="k">${ic('document')}Номер</span><span>${esc(l.ann_number)} · лот ${esc(l.lot_number)} · ${esc(l.system)}</span>
       ${l.short&&l.short!==l.name?`<span class="k">${ic('document-text')}Описание</span><span>${esc(l.short)}</span>`:''}
@@ -413,6 +420,11 @@ async function open(id){
   <div class="card"><h3>${ic('document')}Техническая спецификация</h3>${sp.desc?more('Текст техспецификации','',`<div class="spec">${esc(sp.desc)}</div>`).replace('details class="more"','details class="more" style="border-top:0;margin-top:0"'):sp.error?`<span class="mut">Не удалось прочитать: ${esc(sp.error)}</span>`:'<span class="mut">Ещё загружается или нет файла.</span>'}</div>`;
   ['qty','cams','months','unitCost','materials','labor','logistics','otherCost','bid','supVat'].forEach(k=>{const e=$('#c_'+k);if(e)e.addEventListener('input',recalc)});
   recalc(true);renderItems();
+  $('#tsFile').onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;
+    for(const f of fs){$('#tsUp').textContent=`читаю ${f.name}…`;
+      const r=await fetch(`/api/upload-ts/${id}?name=${encodeURIComponent(f.name)}`,{method:'POST',body:f}).then(r=>r.json()).catch(e=>({error:String(e)}));
+      if(r.error){$('#tsUp').innerHTML=`<span style="color:var(--bad)">${esc(f.name)}: ${esc(r.error)}</span>`;return}}
+    await load();open(id)};
   if($('#btnReset'))$('#btnReset').onclick=async()=>{await api('/api/calc/'+id,{reset:true});const L=LOTS.find(x=>x.id===id);if(L)L.calc=null;open(id)};
   $('#supGo').onclick=()=>supSearch($('#supQ').value);$('#supQ').onkeydown=e=>{if(e.key==='Enter')supSearch($('#supQ').value)};
   const m=await api('/api/match/'+id);if(CUR.id!==id)return;
