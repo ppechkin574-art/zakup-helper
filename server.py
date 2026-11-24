@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent
 REFRESH_EVERY = 30 * 60          # раз в полчаса перечитываем открытые лоты
 HISTORY_TTL = 7 * 24 * 3600      # историю цен обновляем раз в неделю
 HISTORY_DAYS = 180
+MIN_METHOD_DEALS = 5             # медиана по способу закупки — если таких договоров не меньше 5
 
 state = {"running": False, "stage": "", "error": None}
 
@@ -40,7 +41,8 @@ def refresh():
                      old[0]["first_seen"] if old else t, t))
         store.meta_set("last_refresh", {"at": t, "found": len(lots)})
 
-        relevant = [l for l in lots if source.classify(l) != "шум"]
+        # пока работаем только по западу; лоты без адреса тоже берём (см. docs/ECONOMICS.md)
+        relevant = [l for l in lots if source.classify(l) != "шум" and source.west(l) is not False]
         state["stage"] = f"техспецификации (0/{len(relevant)})"
         todo = [l for l in relevant if store.get_json("techspec", "lot_id", l["id"])[0] is None]
         done = 0
@@ -111,7 +113,7 @@ def run_autopick():
     n = 0
     for row in store.q("SELECT * FROM lots"):
         s = lot_summary(row)
-        if (s["end"] or "") < now:
+        if (s["end"] or "") < now or s["west"] is False:
             continue
         spec = (store.get_json("techspec", "lot_id", s["id"])[0] or {}).get("spec") or {}
         try:
@@ -138,6 +140,13 @@ def lot_summary(row):
     auto, _ = store.get_json("auto", "lot_id", lot["id"])
     codes = [e["code"] for e in lot.get("enstrus") or []]
     hist = store.get_json("history", "enstru_code", codes[0])[0] if codes else None
+    # типичная скидка: по тому же способу закупки, если договоров хватает, иначе общая по коду
+    method = lot.get("purchase_method_name")
+    bm = ((hist or {}).get("by_method") or {}).get(method) or {}
+    if bm.get("n", 0) >= MIN_METHOD_DEALS and bm.get("median") is not None:
+        disc, disc_src = bm["median"], f"по способу «{method}», {bm['n']} договоров"
+    else:
+        disc, disc_src = (hist or {}).get("median_discount"), "по коду товара, все конкурентные способы"
     return {
         "id": lot["id"], "category": row["category"], "first_seen": row["first_seen"],
         "name": lot.get("name_ru") or lot.get("name_kk") or "", "announcement": lot.get("announcement_name_ru") or lot.get("announcement_name_kk") or "",
@@ -153,7 +162,8 @@ def lot_summary(row):
         "customer_bin": ", ".join(c.get("bin") or "" for c in lot.get("customers") or []),
         "ann_number": lot.get("announcement_number"), "ann_ext": lot.get("announcement_external_id"),
         "lot_number": lot.get("lot_number"), "dumping_price": lot.get("dumping_price"),
-        "median_discount": (hist or {}).get("median_discount"),
+        "median_discount": disc, "discount_src": disc_src if disc is not None else None,
+        "west": source.west(lot),
         # нужен ли монтаж: работы/ремонт — да; поставка — если в спеке есть установка
         "install": row["category"] in ("монтаж", "ремонт") or bool(
             re.search(r"установк|монтаж", (spec.get("desc") or "") + " " + (lot.get("announcement_name_ru") or ""), re.I)),
@@ -186,7 +196,7 @@ class H(BaseHTTPRequestHandler):
             now = utcnow().isoformat()
             rows = store.q("SELECT * FROM lots")
             out = [lot_summary(r) for r in rows]
-            out = [o for o in out if (o["end"] or "") >= now[:19]]
+            out = [o for o in out if (o["end"] or "") >= now[:19] and o["west"] is not False]
             out.sort(key=lambda o: o["end"] or "")
             return self.send(200, out)
         if p.startswith("/api/match/"):

@@ -150,7 +150,12 @@ const ic=(n,cls="")=>`<span class="ic ${cls}">${ICONS[n]||""}</span>`;
 const $=s=>document.querySelector(s);
 const fmt=n=>n==null||isNaN(n)?'—':Math.round(n).toLocaleString('ru-RU');
 const pct=n=>n==null||isNaN(n)?'—':(n*100).toFixed(1)+'%';
-const DEF={tax:'our',vat:0.16,kpn:0.20,simple:0.04,target:0.15,bidSec:0.01,perfSec:0.03,logistics:0.03,installPerCam:20000,bin:''};
+// правила — docs/ECONOMICS.md
+const DEF={tax:'simple',vat:0.16,kpn:0.20,simple:0.04,target:0.15,bidSec:0.01,perfSec:0.03,logistics:0.03,
+  inst1:20000,instT1:10,inst2:18000,instT2:30,inst3:15000,toRate:'',bin:''};
+// монтаж под ключ за камеру: ставка зависит от числа камер на объекте и применяется ко всем камерам
+function instRate(n){return n>S.instT2?S.inst3:n>S.instT1?S.inst2:S.inst1}
+function instTier(n){return n>S.instT2?`от ${S.instT2+1} камер`:n>S.instT1?`${S.instT1+1}–${S.instT2} камер`:`до ${S.instT1} камер`}
 let S=Object.assign({},DEF), LOTS=[], CUR=null, sortK='end', sortDir=1;
 
 async function api(p,body){const r=await fetch(p,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});return r.json()}
@@ -187,7 +192,10 @@ function compute(l,c){
   const items=c.items||[];
   const equip=items.length?items.reduce((a,i)=>a+(+i.cost||0)*(+i.qty||0),0):(+c.unitCost||0)*qty; // закупка (с НДС поставщика)
   const cams=c.cams!=null&&c.cams!==''?+c.cams:defaultCams(l,items);
-  const labor=c.labor!=null&&c.labor!==''?+c.labor:cams*S.installPerCam;
+  // ТО: камеры × месяцы × ставка; пока ставка не задана — оценки нет
+  const isTO=l.category==='ТО',months=+c.months||0;
+  const toCost=isTO&&S.toRate!==''&&cams&&months?cams*months*(+S.toRate):0;
+  const labor=c.labor!=null&&c.labor!==''?+c.labor:isTO?toCost:cams*instRate(cams);
   const other=(+c.materials||0)+labor+(+c.otherCost||0);
   const logi=c.logistics!=null&&c.logistics!==''?+c.logistics:equip*S.logistics;
   const supVat=c.supVat!==false;
@@ -207,14 +215,14 @@ function compute(l,c){
   const needCash=equip+other+logi+bid*(S.bidSec+S.perfSec);
   const known=equip>0||other>0;
   const verdict=!known?null:margin>=S.target?'good':margin>=0.05?'warn':'bad';
-  return {cams,labor,bid,qty,equip,other,logi,tax,net,margin,minBid,needCash,verdict,costNet,revNet}
+  return {cams,months,isTO,labor,bid,qty,equip,other,logi,tax,net,margin,minBid,needCash,verdict,costNet,revNet}
 }
 const VLAB={good:'выгодно',warn:'на грани',bad:'невыгодно'};
 
 // ---------- список ----------
 function render(){
   const cat=$('#fCat').value,reg=$('#fReg').value,q=$('#fQ').value.toLowerCase(),min=$('#fMin').checked;
-  let L=LOTS.filter(l=>(cat?l.category===cat:l.category!=='шум')&&(!reg||l.region.includes(reg))&&(!min||l.price>=1e6)
+  let L=LOTS.filter(l=>(cat?l.category===cat:l.category!=='шум')&&(!reg||(reg==='—'?!l.region:l.region.includes(reg)))&&(!min||l.price>=1e6)
     &&(!q||(l.name+' '+l.announcement+' '+l.customer+' '+l.short).toLowerCase().includes(q)));
   L.forEach(l=>{const c=effCalc(l);l._r=compute(l,c);l._f=compute(l,{...(c||{}),bid:l.price})});
   L.sort((a,b)=>{const g=x=>sortK==='verdict'?(x._r.verdict?x._r.margin:-1e9):x[sortK]??'';const A=g(a),B=g(b);return (A>B?1:A<B?-1:0)*sortDir});
@@ -222,7 +230,7 @@ function render(){
   $('#tb').innerHTML=L.map(l=>{const r=l._r,addr=place((l.addresses||[])[0]||l.region);return `<div class="lot ${CUR&&CUR.id===l.id?'on':''}" data-id="${l.id}">
     <div class="top">${endLabel(l.end)}${r.verdict?`<span class="tag v-${r.verdict}">${VLAB[r.verdict]} ${pct(r.margin)}</span>`:'<span class="tag">нет оценки</span>'}</div>
     <div class="title">${esc(l.name)}</div>
-    ${addr?`<div class="place">${ic('map-point')}${esc(addr)}${(l.addresses||[]).length>1?` <span>+${l.addresses.length-1}</span>`:''}</div>`:''}
+    <div class="place">${ic('map-point')}${addr?`${esc(addr)}${(l.addresses||[]).length>1?` <span>+${l.addresses.length-1}</span>`:''}`:'<span>регион не указан</span>'}</div>
     <div class="nums"><div><div class="k">${ic('wallet-money')}Сумма лота</div><div class="sum">${fmt(l.price)} ₸</div></div>
       <div><div class="k">${ic('graph-up')}Прибыль</div><div class="sum" style="color:${r.verdict?`var(--${r.verdict})`:'var(--mut)'}">${r.verdict?fmt(r.net)+' ₸':'—'}</div></div></div>
   </div>`}).join('');
@@ -265,15 +273,16 @@ async function open(id){
     <div class="status" id="calcStatus">${calcStatus(l)}</div>
     <div id="resTiles"></div>
     <div id="resWarn"></div>
-    <div class="bidrow"><span class="fl">${ic('hand-money')}<b>Наша цена в заявке, ₸</b><div class="small mut">по умолчанию: сумма лота − типичная скидка победителей</div></span><input type="number" id="c_bid" value="${Math.round(c.bid||defaultBid(l))}"></div>
+    <div class="bidrow"><span class="fl">${ic('hand-money')}<b>Наша цена в заявке, ₸</b><div class="small mut">по умолчанию: сумма лота − ${l.median_discount!=null?`${pct(l.median_discount)} (${esc(l.discount_src)})`:'10% (истории нет)'}</div></span><input type="number" id="c_bid" value="${Math.round(c.bid||defaultBid(l))}"></div>
     <details class="more" id="itemsBox"><summary>${ic('alt-arrow-down','chev')}Позиции сметы <span class="cnt" id="itemsCnt"></span></summary><div class="in"><div id="items"></div></div></details>
     ${more('Параметры расчёта','',`<div class="grid2">
       <span class="fl">${ic('box-minimalistic')}Количество, ${esc(sp.unit||'ед.')}</span><input type="number" id="c_qty" value="${c.qty}">
       <span class="fl">${ic('tag-price')}Закупка за ед., ₸ <span class="small mut">(если нет позиций сметы)</span></span><input type="number" id="c_unitCost" value="${c.unitCost||''}" placeholder="0">
       <span class="small"><label><input type="checkbox" id="c_supVat" ${c.supVat!==false?'checked':''}> поставщик с НДС</label></span><span></span>
       <span class="fl">${ic('box')}Материалы (кабель, крепёж…), ₸</span><input type="number" id="c_materials" value="${c.materials||''}" placeholder="0">
-      <span class="fl">${ic('videocamera-record')}Камер к монтажу <span class="small mut">(пусто = авто)</span></span><input type="number" id="c_cams" value="${c.cams??''}" placeholder="авто">
-      <span class="fl">${ic('sledgehammer')}Работы / монтаж, ₸ <span class="small mut">(пусто = камеры × ${fmt(S.installPerCam)})</span></span><input type="number" id="c_labor" value="${c.labor??''}" placeholder="авто">
+      <span class="fl">${ic('videocamera-record')}${l.category==='ТО'?'Камер на обслуживании':'Камер к монтажу'} <span class="small mut">(пусто = авто)</span></span><input type="number" id="c_cams" value="${c.cams??''}" placeholder="авто">
+      ${l.category==='ТО'?`<span class="fl">${ic('hourglass')}Месяцев обслуживания</span><input type="number" id="c_months" value="${c.months??''}" placeholder="0">`:''}
+      <span class="fl">${ic('sledgehammer')}${l.category==='ТО'?'Стоимость ТО':'Работы / монтаж'}, ₸ <span class="small mut">(пусто = ${l.category==='ТО'?'камеры × месяцы × ставка ТО':'камеры × ставка по шкале'})</span></span><input type="number" id="c_labor" value="${c.labor??''}" placeholder="авто">
       <span class="fl">${ic('delivery')}Логистика, ₸ <span class="small mut">(пусто = ${pct(S.logistics)} от оборудования)</span></span><input type="number" id="c_logistics" value="${c.logistics??''}" placeholder="авто">
       <span class="fl">${ic('routing-2')}Прочее (командировки, проект), ₸</span><input type="number" id="c_otherCost" value="${c.otherCost||''}" placeholder="0">
     </div>`)}
@@ -289,7 +298,7 @@ async function open(id){
   <div class="card"><h3>${ic('chart-2')}Как такие лоты выигрывают</h3>${histHtml(h,l)}</div>
 
   <div class="card"><h3>${ic('document')}Техническая спецификация</h3>${sp.desc?more('Текст техспецификации','',`<div class="spec">${esc(sp.desc)}</div>`).replace('details class="more"','details class="more" style="border-top:0;margin-top:0"'):sp.error?`<span class="mut">Не удалось прочитать: ${esc(sp.error)}</span>`:'<span class="mut">Ещё загружается или нет файла.</span>'}</div>`;
-  ['qty','cams','unitCost','materials','labor','logistics','otherCost','bid','supVat'].forEach(k=>$('#c_'+k).addEventListener('input',recalc));
+  ['qty','cams','months','unitCost','materials','labor','logistics','otherCost','bid','supVat'].forEach(k=>{const e=$('#c_'+k);if(e)e.addEventListener('input',recalc)});
   recalc(true);renderItems();
   if($('#btnReset'))$('#btnReset').onclick=async()=>{await api('/api/calc/'+id,{reset:true});const L=LOTS.find(x=>x.id===id);if(L)L.calc=null;open(id)};
   $('#supGo').onclick=()=>supSearch($('#supQ').value);$('#supQ').onkeydown=e=>{if(e.key==='Enter')supSearch($('#supQ').value)};
@@ -327,7 +336,7 @@ function renderItems(){
   $('#items').querySelectorAll('button[data-d]').forEach(b=>b.onclick=()=>{ITEMS.splice(+b.dataset.d,1);renderItems();recalc()});
 }
 let ITEMS=[];
-function readCalc(){const c={items:ITEMS};['qty','cams','unitCost','materials','labor','logistics','otherCost','bid'].forEach(k=>{const v=$('#c_'+k).value;if(v!=='')c[k]=+v});c.supVat=$('#c_supVat').checked;return c}
+function readCalc(){const c={items:ITEMS};['qty','cams','months','unitCost','materials','labor','logistics','otherCost','bid'].forEach(k=>{const e=$('#c_'+k);if(e&&e.value!=='')c[k]=+e.value});c.supVat=$('#c_supVat').checked;return c}
 let saveT;
 function recalc(first){
   const c=readCalc(),r=compute(CUR,c),f=compute(CUR,{...c,bid:CUR.price});
@@ -341,8 +350,8 @@ function recalc(first){
   $('#resMore').innerHTML=`<div class="kv small">
     <span class="k">${ic('sale-square')}Без скидки</span><span>по полной сумме ${fmt(CUR.price)} ₸: прибыль <b>${fmt(f.net)} ₸</b> (${pct(f.margin)})</span>
     <span class="k">${ic('case-minimalistic')}Режим</span><span>${S.tax==='our'?`НДС ${pct(S.vat)} + КПН ${pct(S.kpn)}`:`упрощёнка ${pct(S.simple)} с оборота`}</span>
-    <span class="k">${ic('wallet-money')}Выручка без НДС</span><span>${fmt(r.revNet)} ₸</span>
-    <span class="k">${ic('cart-large-2')}Расходы без НДС</span><span>${fmt(r.costNet)} ₸ (оборудование ${fmt(r.equip)}, логистика ${fmt(r.logi)}, монтаж ${fmt(r.labor)}${r.cams?` за ${r.cams} кам.`:''}, прочее ${fmt(r.other-r.labor)})</span>
+    <span class="k">${ic('wallet-money')}Выручка${S.tax==='our'?' без НДС':''}</span><span>${fmt(r.revNet)} ₸</span>
+    <span class="k">${ic('cart-large-2')}Расходы${S.tax==='our'?' без НДС':''}</span><span>${fmt(r.costNet)} ₸ (оборудование ${fmt(r.equip)}, логистика ${fmt(r.logi)}, ${r.isTO?`ТО ${fmt(r.labor)}${r.cams&&r.months?` (${r.cams} кам. × ${r.months} мес. × ${S.toRate===''?'ставка не задана':fmt(+S.toRate)})`:''}`:`монтаж ${fmt(r.labor)}${r.cams?` за ${r.cams} кам. по ${fmt(instRate(r.cams))} (${instTier(r.cams)})`:''}`}, прочее ${fmt(r.other-r.labor)})</span>
     <span class="k">${ic('document-text')}Налог</span><span>${fmt(r.tax)} ₸</span>
     <span class="k">${ic('box')}Деньги на старте</span><span>${fmt(r.needCash)} ₸ <span class="mut">(закупка + обеспечения заявки ${pct(S.bidSec)} и договора ${pct(S.perfSec)})</span></span>
   </div>`;
@@ -352,7 +361,7 @@ function histHtml(h,l){
   if(!h)return '<span class="mut">Ещё собирается…</span>';
   const d=h.deals||[];
   return `<div class="kv">
-    <span class="k">${ic('sale-square')}Типичная скидка</span><span><span class="keyfig">${pct(h.median_discount)}</span> <span class="mut small">по ${h.competitive_checked} договорам за 6 мес.</span></span>
+    <span class="k">${ic('sale-square')}Типичная скидка</span><span><span class="keyfig">${pct(l.median_discount)}</span> <span class="mut small">${esc(l.discount_src||'')} · за 6 мес.</span></span>
   </div>
   ${more('Кто выигрывает',h.top_suppliers.length,`<div class="kv small">
     <span class="k">${ic('document')}Договоров по коду</span><span>${h.contracts_total}</span>
@@ -374,19 +383,22 @@ function settings(){
     <span class="fl">${ic('shield-check')}Обеспечение заявки</span><input type="number" step="0.001" id="s_bidSec" value="${S.bidSec}">
     <span class="fl">${ic('shield-check')}Обеспечение исполнения договора</span><input type="number" step="0.001" id="s_perfSec" value="${S.perfSec}">
     <span class="fl">${ic('delivery')}Логистика по умолчанию, доля от оборудования</span><input type="number" step="0.01" id="s_logistics" value="${S.logistics}">
-    <span class="fl">${ic('videocamera-record')}Монтаж одной камеры, ₸</span><input type="number" step="1000" id="s_installPerCam" value="${S.installPerCam}">
+    <span class="fl">${ic('videocamera-record')}Монтаж под ключ за камеру, до <input type="number" id="s_instT1" value="${S.instT1}" style="width:56px"> камер, ₸</span><input type="number" step="1000" id="s_inst1" value="${S.inst1}">
+    <span class="fl">${ic('videocamera-record')}… до <input type="number" id="s_instT2" value="${S.instT2}" style="width:56px"> камер, ₸</span><input type="number" step="1000" id="s_inst2" value="${S.inst2}">
+    <span class="fl">${ic('videocamera-record')}… больше, ₸</span><input type="number" step="1000" id="s_inst3" value="${S.inst3}">
+    <span class="fl">${ic('settings-minimalistic')}ТО: за камеру в месяц, ₸ <span class="small mut">(пусто = ТО не оценивается)</span></span><input type="number" step="100" id="s_toRate" value="${S.toRate}" placeholder="не задана">
     <span class="fl">${ic('user-id')}БИН нашей компании <span class="small mut">(пока не используется)</span></span><input type="text" id="s_bin" value="${esc(S.bin||'')}" placeholder="12 цифр">
   </div>
   <p class="small mut">Доли вводятся как 0.16 = 16%. Ставки по Налоговому кодексу РК 2026 (НДС 16%, КПН 20%, упрощёнка 4%) — сверьте со своим бухгалтером: маслихат может менять ставку упрощёнки.</p>
   <button class="pri" id="s_save">Сохранить</button></div>`;
   document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{S.tax=b.dataset.t;settings()});
-  $('#s_save').onclick=async()=>{['vat','kpn','simple','target','bidSec','perfSec','logistics','installPerCam'].forEach(k=>S[k]=+$('#s_'+k).value);S.bin=$('#s_bin').value.trim();await api('/api/settings',S);render();$('#detail').innerHTML='<p class="mut">Сохранено.</p>'};
+  $('#s_save').onclick=async()=>{['vat','kpn','simple','target','bidSec','perfSec','logistics','inst1','instT1','inst2','instT2','inst3'].forEach(k=>S[k]=+$('#s_'+k).value);S.toRate=$('#s_toRate').value===''?'':+$('#s_toRate').value;S.bin=$('#s_bin').value.trim();await api('/api/settings',S);render();$('#detail').innerHTML='<p class="mut">Сохранено.</p>'};
 }
 
 async function load(){
   LOTS=await api('/api/lots');
   const regs=[...new Set(LOTS.map(l=>(l.region.split(',')[0]||'').trim()).filter(Boolean))].sort();
-  const cur=$('#fReg').value;$('#fReg').innerHTML='<option value="">Все регионы</option>'+regs.map(r=>`<option ${r===cur?'selected':''}>${esc(r)}</option>`).join('');
+  const cur=$('#fReg').value;$('#fReg').innerHTML='<option value="">Все регионы</option>'+regs.map(r=>`<option ${r===cur?'selected':''}>${esc(r)}</option>`).join('')+`<option value="—" ${cur==='—'?'selected':''}>Регион не указан</option>`;
   render();
 }
 async function poll(){

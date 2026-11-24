@@ -59,6 +59,18 @@ def search_open_lots(now_iso):
     return list(seen.values())
 
 
+# Запад Казахстана по коду КАТО места поставки: Актюбинская, Атырауская, ЗКО, Мангистауская
+WEST_KATO = ("15", "23", "27", "47")
+
+
+def west(lot):
+    """True — запад, False — другой регион, None — адреса нет (Самрук-Казына и др.)."""
+    codes = [str(a.get("code") or "") for a in lot.get("delivery_addresses") or []]
+    if not codes:
+        return None
+    return any(c.startswith(WEST_KATO) for c in codes)
+
+
 def classify(lot):
     name = " ".join(filter(None, [
         lot.get("name_ru"), lot.get("announcement_name_ru"),
@@ -294,14 +306,14 @@ def lot_techspec(lot):
 
 # ---------- история цен по коду ЕНС ТРУ ----------
 
-def price_history(enstru_code, since_iso, max_details=40):
-    """Договоры по коду за период: плановая сумма vs цена договора → реальная скидка."""
+def price_history(enstru_code, since_iso, max_details=60):
+    """Договоры по коду за период: плановая сумма vs цена договора → реальная скидка.
+    Общая медиана — по конкурентным способам; отдельно медиана по каждому способу закупки."""
     d = get("/public/contracts/", {"enstru_code": enstru_code, "limit": 100,
                                    "sign_date__gte": since_iso, "ordering": "-sign_date"})
     rows = d.get("results", [])
-    competitive = [r for r in rows if "одного источника" not in (r.get("purchase_method_name") or "")]
     deals = []
-    for r in competitive[:max_details]:
+    for r in rows[:max_details]:
         try:
             c = get(f"/public/contracts/{r['id']}/")
         except Exception:
@@ -319,13 +331,21 @@ def price_history(enstru_code, since_iso, max_details=40):
     for r in rows:
         s = r.get("supplier_organization_name") or "?"
         suppliers[s] = suppliers.get(s, 0) + 1
-    disc = sorted(x["discount"] for x in deals)
-    med = disc[len(disc) // 2] if disc else None
+
+    def med(xs):
+        xs = sorted(xs)
+        return xs[len(xs) // 2] if xs else None
+    competitive = [x for x in deals if "одного источника" not in (x["method"] or "")]
+    disc = sorted(x["discount"] for x in competitive)
+    by_method = {}
+    for x in deals:
+        by_method.setdefault(x["method"] or "?", []).append(x["discount"])
     return {
         "enstru_code": enstru_code, "contracts_total": d.get("count", 0),
-        "competitive_checked": len(deals), "median_discount": med,
+        "competitive_checked": len(competitive), "median_discount": med(disc),
         "p25_discount": disc[len(disc) // 4] if disc else None,
         "p75_discount": disc[(len(disc) * 3) // 4] if disc else None,
+        "by_method": {m: {"median": med(v), "n": len(v)} for m, v in by_method.items()},
         "top_suppliers": sorted(suppliers.items(), key=lambda kv: -kv[1])[:8],
         "deals": deals,
     }
