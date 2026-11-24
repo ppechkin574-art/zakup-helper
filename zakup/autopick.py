@@ -185,24 +185,29 @@ def russian_part(text):
 
 # ---------- выбор товара ----------
 
-def _better(a, b):
-    """a лучше b: в наличии важнее, потом дешевле."""
-    ka = (a["quantity"] <= 0, a["cost"] or 1e18)
-    kb = (b["quantity"] <= 0, b["cost"] or 1e18)
+def stock_rank(quantity, need=1):
+    """0 — на складе хватает на всё количество, 1 — есть, но меньше нужного, 2 — нет."""
+    return 0 if quantity >= max(need or 1, 1) else 1 if quantity > 0 else 2
+
+
+def _better(a, b, need=1):
+    """a лучше b: хватает на складе важнее, потом дешевле."""
+    ka = (stock_rank(a["quantity"], need), a["cost"] or 1e18)
+    kb = (stock_rank(b["quantity"], need), b["cost"] or 1e18)
     return ka < kb
 
 
-def cheapest(rows):
+def cheapest(rows, need=1):
     best = None
     for r in rows:
         if not r.get("cost"):
             continue
-        if best is None or _better(r, best):
+        if best is None or _better(r, best, need):
             best = r
     return best
 
 
-def type_analog(req):
+def type_analog(req, need=1):
     """Самый дешёвый товар нужного типа; Мп не ниже требуемого, если лот его указал."""
     cats = supplier.categories()
     if not cats:
@@ -244,7 +249,7 @@ def type_analog(req):
             if mp is None or mp < req["mp_min"]:
                 continue
         cand.append(o)
-    best = cheapest(cand)
+    best = cheapest(cand, need)
     if best is None:
         need = (f" от {req['ch_min']} каналов" if kind == "регистратор" and req.get("ch_min")
                 else f" от {req['mp_min']:g} Мп" if req["mp_min"] and kind != "регистратор" else "")
@@ -285,7 +290,7 @@ def _cameras_from_text(raw, req, cams):
     p, tier, _ = pick_by_model(raw, "")
     if p and p["is_camera"]:
         return item_of(p, cams, tier), None
-    a, why = type_analog(req)
+    a, why = type_analog(req, cams)
     return (item_of(a, cams, "аналог по типу"), None) if a else (None, why)
 
 
@@ -351,7 +356,7 @@ def autopick(lot, spec):
         qty = (spec or {}).get("qty") or lot.get("qty_api") or 1
         p, tier, models = pick_by_model(text, lot["name"])
         if not p:
-            p, why = type_analog(req)
+            p, why = type_analog(req, qty)
             if not p:
                 return {"ok": False, "reason": why, "req": req, "models": models}
             tier = "аналог по типу"
@@ -362,7 +367,8 @@ def autopick(lot, spec):
     for it in result["items"]:
         if it.get("manual"):
             continue
-        if it["stock"] < it["qty"]:
+        by_meter = bool(re.search(r"—\s*[\d.,]+\s*(?:м|п\.?\s*м|км)\.?$", it.get("src") or "")) or "за метр" in (it.get("tier") or "")
+        if it["stock"] < (1 if by_meter else it["qty"]):  # кабель: остаток у поставщика не в метрах
             notes.append(f"не хватает на складе: {it['name']} — есть {it['stock']} из {it['qty']:g}")
         if it["cost_src"] != "платина":
             notes.append(f"{it['name']}: {it['cost_src']}")

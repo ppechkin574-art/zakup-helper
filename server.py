@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-from zakup import autopick, source, store, supplier
+from zakup import autopick, bom, source, store, supplier
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
 ROOT = Path(__file__).resolve().parent
@@ -275,13 +275,17 @@ class H(BaseHTTPRequestHandler):
             # другие варианты к позиции сметы: та же категория поставщика, сначала в наличии и дешевле
             from urllib.parse import parse_qs, urlparse
             art = int((parse_qs(urlparse(self.path).query).get("article") or ["0"])[0] or 0)
-            base = store.q("SELECT category FROM supplier_products WHERE article=?", (art,))
+            base = store.q("SELECT * FROM supplier_products WHERE article=?", (art,))
             if not base:
                 return self.send(200, [])
             rows = store.q("SELECT * FROM supplier_products WHERE category=? AND article<>? "
-                           "ORDER BY quantity>0 DESC, COALESCE(NULLIF(final_price,0),price) LIMIT 40",
+                           "ORDER BY quantity>0 DESC, COALESCE(NULLIF(final_price,0),price) LIMIT 400",
                            (base[0]["category"], art))
-            out = [supplier.row_out(r, "та же категория", 0) for r in rows if supplier.cost_of(dict(r))]
+            out = []
+            for r in rows:  # только не хуже исходного по главным характеристикам (docs/ECONOMICS.md, 2.4)
+                ok, why = bom.not_worse(base[0], r)
+                if ok and supplier.cost_of(dict(r)):
+                    out.append(supplier.row_out(r, why, 0))
             return self.send(200, out[:8])
         if p.startswith("/api/lot/"):
             lid = int(p.rsplit("/", 1)[1])
