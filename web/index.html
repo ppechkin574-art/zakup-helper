@@ -31,7 +31,7 @@ html,body{background:var(--bg)}
 body{margin:0;color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Arial,sans-serif;
   -webkit-font-smoothing:antialiased;letter-spacing:-.005em;padding:12px;height:100vh;display:flex;flex-direction:column;gap:12px}
 header{display:flex;gap:8px;align-items:center;padding:10px 12px;background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);flex-wrap:nowrap;flex:none;min-width:0}
-header select{width:160px;flex:none} header .search{flex:1 1 200px;min-width:140px;max-width:320px;position:relative;display:flex}
+header select{width:150px;flex:none} header .search{flex:1 1 160px;min-width:100px;max-width:300px;position:relative;display:flex}
 header .search .ic{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--mut)}
 header .search input{width:100%;padding-left:32px}
 button{display:inline-flex;align-items:center;gap:6px}
@@ -52,7 +52,20 @@ select:focus,input:focus{border-color:var(--acc);box-shadow:0 0 0 3px #CCE4FF}
 input[type=checkbox]{accent-color:var(--acc);padding:0}
 input[type=number]{width:100%;text-align:right;font-variant-numeric:tabular-nums}
 main{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(400px,1fr);gap:12px;flex:1;min-height:0}
-#list{overflow:auto;background:var(--card);border-radius:var(--r);box-shadow:var(--shadow)}
+#list{overflow:auto;padding:2px 4px 12px 2px}
+.sortbar{display:flex;gap:10px;align-items:center;margin:2px 0 10px 2px}
+.sortbar .seg button{font-size:13px;padding:5px 10px}
+#tb{display:flex;flex-direction:column;gap:10px}
+/* B · плитка с цифрами */
+.lot{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:10px;cursor:pointer}
+.lot:hover{box-shadow:0 0 0 1px #C7C7CC,0 1px 2px rgba(0,0,0,.06),0 4px 14px rgba(0,0,0,.06)}
+.lot.on{box-shadow:0 0 0 2px var(--acc),0 4px 14px rgba(0,0,0,.06)}
+.lot .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.lot .title{font-weight:700;font-size:15px;line-height:1.3}
+.lot .place{color:var(--mut);font-size:13px;display:inline-flex;gap:5px;align-items:center}
+.lot .nums{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--line);padding-top:10px;gap:10px}
+.lot .nums .k{font-size:12px;color:var(--mut);display:flex;gap:5px;align-items:center}
+.lot .nums .sum{font-family:"SF UI Display",-apple-system,sans-serif;font-weight:700;font-size:17px;font-variant-numeric:tabular-nums;white-space:nowrap}
 #detail{overflow:auto;padding:0 2px 12px}
 #detail>p{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:24px;margin:0}
 table{width:100%;border-collapse:collapse}
@@ -89,7 +102,7 @@ details summary{cursor:pointer;color:var(--acc-ink)}
 .doc table td{border-bottom:1px solid var(--line)}
 .seg{display:inline-flex;background:var(--fill);border-radius:10px;padding:2px}
 .seg button{background:transparent;color:var(--ink);border-radius:8px}.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
-@media (max-width:900px){body{height:auto}main{grid-template-columns:1fr}#list{max-height:55vh}}
+@media (max-width:900px){body{height:auto}main{grid-template-columns:1fr}#list{max-height:60vh}}
 </style>
 </head>
 <body>
@@ -106,9 +119,11 @@ details summary{cursor:pointer;color:var(--acc-ink)}
   <button class="pri" id="btnRef"><span data-ic="refresh"></span><span class="lbl">Обновить</span></button>
 </header>
 <main>
-  <div id="list"><table><thead><tr>
-    <th data-k="end" data-ic="hourglass">Осталось</th><th data-k="name" data-ic="document-text">Лот</th><th data-k="region" data-ic="map-point">Регион</th><th class="num" data-k="price" data-ic="wallet-money">Сумма</th><th data-k="verdict" data-ic="graph-up" style="width:170px">Оценка</th>
-  </tr></thead><tbody id="tb"></tbody></table></div>
+  <div id="list">
+    <div class="sortbar"><span class="mut small">Сортировка</span>
+      <div class="seg" id="sortSeg"><button data-k="end" class="on"><span data-ic="hourglass"></span>Срок</button><button data-k="price"><span data-ic="wallet-money"></span>Сумма</button><button data-k="verdict"><span data-ic="graph-up"></span>Выгода</button></div></div>
+    <div id="tb"></div>
+  </div>
   <div id="detail"><p class="mut">Выберите лот слева.</p></div>
 </main>
 <script>
@@ -187,16 +202,15 @@ function render(){
   let L=LOTS.filter(l=>(cat?l.category===cat:l.category!=='шум')&&(!reg||l.region.includes(reg))&&(!min||l.price>=1e6)
     &&(!q||(l.name+' '+l.announcement+' '+l.customer+' '+l.short).toLowerCase().includes(q)));
   L.forEach(l=>{const c=effCalc(l);l._r=compute(l,c);l._f=compute(l,{...(c||{}),bid:l.price})});
-  L.sort((a,b)=>{const g=x=>sortK==='verdict'?({good:3,warn:2,bad:1}[x._r.verdict]||0):x[sortK]??'';const A=g(a),B=g(b);return (A>B?1:A<B?-1:0)*sortDir});
+  L.sort((a,b)=>{const g=x=>sortK==='verdict'?(x._r.verdict?x._r.margin:-1e9):x[sortK]??'';const A=g(a),B=g(b);return (A>B?1:A<B?-1:0)*sortDir});
   const fresh=Date.now()/1000-86400;
-  $('#tb').innerHTML=L.map(l=>`<tr class="row ${CUR&&CUR.id===l.id?'on':''}" data-id="${l.id}">
-    <td style="white-space:nowrap">${endLabel(l.end)}</td>
-    <td><b>${esc(l.name)}</b></td>
-    <td>${esc(place((l.addresses||[])[0]||l.region))}${(l.addresses||[]).length>1?` <span class="mut">+${l.addresses.length-1}</span>`:''}</td>
-    <td class="num"><b>${fmt(l.price)} ₸</b></td>
-    <td>${l._r.verdict?`<span class="tag v-${l._r.verdict}">${VLAB[l._r.verdict]} ${pct(l._r.margin)}</span>
-      <div class="num" style="text-align:left;margin-top:4px"><b>${fmt(l._r.net)} ₸</b></div>`
-      :`<span class="tag">нет оценки</span>`}</td></tr>`).join('');
+  $('#tb').innerHTML=L.map(l=>{const r=l._r,addr=place((l.addresses||[])[0]||l.region);return `<div class="lot ${CUR&&CUR.id===l.id?'on':''}" data-id="${l.id}">
+    <div class="top">${endLabel(l.end)}${r.verdict?`<span class="tag v-${r.verdict}">${VLAB[r.verdict]} ${pct(r.margin)}</span>`:'<span class="tag">нет оценки</span>'}</div>
+    <div class="title">${esc(l.name)}</div>
+    ${addr?`<div class="place">${ic('map-point')}${esc(addr)}${(l.addresses||[]).length>1?` <span>+${l.addresses.length-1}</span>`:''}</div>`:''}
+    <div class="nums"><div><div class="k">${ic('wallet-money')}Сумма лота</div><div class="sum">${fmt(l.price)} ₸</div></div>
+      <div><div class="k">${ic('graph-up')}Прибыль</div><div class="sum" style="color:${r.verdict?`var(--${r.verdict})`:'var(--mut)'}">${r.verdict?fmt(r.net)+' ₸':'—'}</div></div></div>
+  </div>`}).join('');
   $('#stat').textContent=`${L.length} лотов на ${fmt(L.reduce((s,l)=>s+l.price,0))} ₸`;
 }
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -350,8 +364,10 @@ async function poll(){
   if(s.last)$('#btnRef').title='Последнее обновление: '+new Date(s.last.at*1000).toLocaleString('ru-RU');
   if(poll.was&&!s.running)load();poll.was=s.running;
 }
-$('#tb').onclick=e=>{const tr=e.target.closest('tr.row');if(tr)open(+tr.dataset.id)};
-document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{const k=th.dataset.k;sortDir=sortK===k?-sortDir:1;sortK=k;render()});
+$('#tb').onclick=e=>{const c=e.target.closest('.lot');if(c)open(+c.dataset.id)};
+// сортировка: срок — ближайшие сверху; сумма и выгода — большие сверху; повторный клик — обратный порядок
+document.querySelectorAll('#sortSeg button').forEach(b=>b.onclick=()=>{const k=b.dataset.k;
+  sortDir=sortK===k?-sortDir:(k==='end'?1:-1);sortK=k;document.querySelectorAll('#sortSeg button').forEach(x=>x.classList.toggle('on',x===b));render()});
 ['#fCat','#fReg','#fQ','#fMin'].forEach(s=>$(s).addEventListener('input',render));
 $('#btnRef').onclick=async()=>{await api('/api/refresh',{});poll()};
 $('#btnSet').onclick=settings;

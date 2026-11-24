@@ -179,8 +179,6 @@ class H(BaseHTTPRequestHandler):
         p = self.path.split("?")[0]
         if p in ("/", "/index.html"):
             return self.send(200, (ROOT / "web" / "index.html").read_bytes(), "text/html; charset=utf-8")
-        if p == "/variants":  # варианты дизайна (временно)
-            return self.send(200, (ROOT / "web" / "variants.html").read_bytes(), "text/html; charset=utf-8")
         if p == "/api/status":
             return self.send(200, state | {"last": store.meta_get("last_refresh"), "supplier": sup_state | {
                 "catalog": store.meta_get("supplier_catalog"), "prices": store.meta_get("supplier_prices")}})
