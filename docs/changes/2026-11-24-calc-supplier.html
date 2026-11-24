@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Расчёт и подбор — изменения</title>
+<style>
+:root{--bg:#F2F2F7;--card:#fff;--ink:#000;--mut:#6C6C70;--line:#E5E5EA;--acc:#0040DD;--good:#248A3D;--goodbg:#E3F5E8;
+  --shadow:0 0 0 1px rgba(0,0,0,.05),0 1px 2px rgba(0,0,0,.06),0 4px 14px rgba(0,0,0,.06)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:980px;margin:0 auto;padding:28px 16px 60px}
+h1{font:700 28px/1.2 "SF UI Display",-apple-system,sans-serif;margin:0 0 6px}
+.sub{color:var(--mut);margin:0 0 22px}
+.card{background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px;margin-bottom:14px}
+h2{font:700 18px/1.3 "SF UI Display",-apple-system,sans-serif;margin:0 0 10px}
+ul{margin:6px 0;padding-left:20px} li{margin:4px 0}
+img{width:100%;border-radius:10px;border:1px solid var(--line);display:block;margin-top:12px}
+.cap{font-size:13px;color:var(--mut);margin-top:6px}
+table{border-collapse:collapse;width:100%;font-size:14px} td,th{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--mut);font-weight:600}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ok{display:inline-block;background:var(--goodbg);color:var(--good);font-weight:600;font-size:12px;padding:2px 8px;border-radius:99px}
+code{background:var(--bg);padding:1px 5px;border-radius:5px;font-size:13px}
+</style></head><body><div class="wrap">
+<h1>Расчёт рентабельности и подбор у поставщика: новый вид</h1>
+<p class="sub">24.11.2026 · помощник по госзакупкам · localhost:8765 · выбраны варианты B + D (расчёт) и 2 + 1 (поставщик)</p>
+
+<div class="card">
+<h2>Коротко</h2>
+<ul>
+<li><b>Расчёт виден сразу.</b> Сверху крупно чистая прибыль, рентабельность и оценка. Под ними цветная полоса: на что уходит наша цена (оборудование, монтаж, материалы и прочее, логистика, налоги, прибыль).</li>
+<li><b>«Получаем» / «Тратим».</b> Две колонки: цена в заявке и налог слева, все расходы справа. Монтаж, логистика, материалы и прочее правятся прямо здесь, авто-значение видно подсказкой («авто: 11 кам. × 18 000 ₸»).</li>
+<li>Раскрывашка «Параметры расчёта» убрана. Редкие поля (камеры, месяцы ТО, количество, закупка за ед., поставщик с НДС) лежат в «Ещё параметры».</li>
+<li><b>Нет себестоимости — нет ложных цифр.</b> Раньше показывало 96% и «Мин. цена 0». Теперь вместо этого «Прибыль пока не посчитать — нет себестоимости» и подсказка, где добавить расходы.</li>
+<li><b>Поставщик по строкам ТЗ.</b> Каждая строка ТЗ — отдельный блок: выбранный товар карточкой (фото, цена, количество, наличие цветом), сумма строки справа. «Позиции сметы» переехали сюда, список больше не дублируется.</li>
+<li><b>«Другие варианты»</b> у каждой позиции: похожие товары из той же категории поставщика, на кнопке «Выбрать» видно, на сколько станет дешевле или дороже. Прибыль пересчитывается сразу.</li>
+<li><b>Неподобранные строки ТЗ</b> показаны пунктиром с кнопкой «Найти»: найденный товар встаёт именно в эту строку с её количеством.</li>
+</ul>
+</div>
+
+<div class="card">
+<h2>Как это выглядит</h2>
+<img src="calc-1-profit.png" alt="Расчёт рентабельности">
+<p class="cap">Лот в Жумекене (11 камер): прибыль 540 763 ₸, 25,6%, «выгодно». Полоса показывает, что большая часть цены уходит на оборудование. Ниже — мин. цена для 15% и деньги на старте.</p>
+<img src="calc-4-nocost.png" alt="Расчёт без себестоимости">
+<p class="cap">Лот без таблицы в ТЗ: вместо 96% — честное «нет себестоимости». Расходы можно вписать прямо в колонке «Тратим».</p>
+<img src="calc-2-supplier.png" alt="Подбор у поставщика по строкам ТЗ">
+<p class="cap">Подбор по строкам ТЗ. Внизу пунктиром — строки, которые автоподбор не нашёл, с кнопкой «Найти».</p>
+<img src="calc-3-alternatives.png" alt="Другие варианты">
+<p class="cap">«Другие варианты» к камере: на кнопке разница в сумме по строке. Проверка: выбор другой камеры поднял прибыль с 540 763 до 927 150 ₸. После проверки расчёт лота возвращён к автоподбору.</p>
+</div>
+
+<div class="card">
+<h2>Что знать</h2>
+<ul>
+<li>«Другие варианты» ищут по <b>категории</b> поставщика и не сверяют характеристики. Например, к 8 Мп камере предлагаются 2 Мп. Перед выбором сверяйтесь с ТЗ.</li>
+<li>«Найти» у неподобранной строки ищет по полному названию из ТЗ, поиск поставщика часто ничего не находит (например, «Кабель-канал 10x15»). Сократите запрос в поле.</li>
+<li>Новый адрес сервера: <code>/api/supplier/similar?article=…</code>. После обновления кода сервер нужно перезапустить.</li>
+<li>Мусор вида <code>HYPERLINK "…"</code> в названиях строк ТЗ теперь скрывается.</li>
+</ul>
+</div>
+</div></body></html>

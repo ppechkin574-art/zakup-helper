@@ -135,6 +135,51 @@ main{position:relative}
 .tipbox{display:none;position:absolute;left:-8px;top:calc(100% + 6px);width:300px;background:#1C1C1E;color:#fff;font-size:12.5px;line-height:1.45;
   padding:10px 12px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:10;font-weight:400}
 .tip:hover .tipbox,.tip:focus .tipbox{display:block}
+/* расчёт: B · полоса + D · получаем / тратим */
+:root{--c-eq:#007AFF;--c-lab:#5856D6;--c-log:#32ADE6;--c-oth:#A2845E;--c-tax:#8E8E93;--c-net:#34C759}
+.t-good{color:var(--good)}.t-warn{color:var(--warn)}.t-bad{color:var(--bad)}
+.huge{font-family:"SF UI Display",-apple-system,sans-serif;font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.15}
+.rhead{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:12px}
+.stack{display:flex;height:30px;border-radius:9px;overflow:hidden;background:var(--fill);gap:1px}
+.stack div{display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:600;overflow:hidden;white-space:nowrap;min-width:0}
+.ax{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut);margin:5px 0 4px;font-variant-numeric:tabular-nums}
+.empty{background:var(--fill);border-radius:12px;padding:12px 14px;display:flex;gap:10px;align-items:center;color:#3A3A3C;font-size:13px}
+.empty .ic{color:var(--warn);width:1.4em;height:1.4em}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-top:12px}
+.col{background:var(--fill);border-radius:12px;padding:12px}
+.ch{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);margin-bottom:8px;display:flex;justify-content:space-between}
+.ch b{color:var(--ink);font-variant-numeric:tabular-nums;text-transform:none;letter-spacing:0;font-size:14px}
+.col .s,.ln .s{display:block;font-size:11.5px;color:var(--mut);font-weight:400}
+.bidin{font-weight:700;font-size:17px;margin:6px 0 8px}
+.ln{display:grid;grid-template-columns:1fr 112px;gap:8px;align-items:center;padding:3px 0;font-size:13px}
+.ln input{padding:5px 8px;font-size:13px}
+.ln .ro{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;padding-right:9px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:.02em}
+.foot{display:flex;gap:6px 18px;flex-wrap:wrap;margin-top:10px;font-size:12.5px}.foot>span{display:inline-flex;gap:5px;align-items:center}.foot .ic{color:var(--acc)}
+.card h3 .r{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:400;font-size:12.5px;color:var(--mut)}.card h3 .r b{color:var(--ink)}
+/* поставщик: 2 · по позициям ТЗ + 1 · карточки товара */
+.search{display:flex;gap:8px;margin:10px 0 8px}.search input{flex:1}
+.grp{border:1px solid var(--line);border-radius:12px;margin-bottom:8px;overflow:hidden}
+.grp .gh{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 12px;background:var(--fill);font-size:13px}
+.grp.miss{border-style:dashed}.grp .gh .s{display:block;font-size:11.5px;margin-top:2px}
+.pc{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;border-top:1px solid var(--line)}
+.grp .gh+.pc{border-top:0}
+#sup>.pc:first-child,#sup .in>.pc:first-child{border-top:0}
+#sup .pc{padding-left:0;padding-right:0}
+.thumb{width:44px;height:44px;border-radius:10px;background:var(--fill);display:flex;align-items:center;justify-content:center;color:#AEAEB2;overflow:hidden}
+.thumb img{width:100%;height:100%;object-fit:contain;background:#fff}.thumb .ic{width:24px;height:24px}
+.pn{font-weight:600;font-size:13px;line-height:1.3;overflow-wrap:anywhere}
+.pc .meta{font-size:12px;color:var(--mut);display:flex;gap:4px 6px;flex-wrap:wrap;align-items:center;margin-top:3px}
+.pr{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.pp{font-weight:700;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mul{font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
+.mul input{width:64px;padding:3px 6px;font-size:12px}
+.stock{font-size:11.5px;font-weight:600;white-space:nowrap}
+.acts{display:flex;gap:6px;margin-top:6px}.acts button,.pr button{padding:4px 10px;font-size:12.5px}
+.grp .pc{align-items:start}.grp .thumb{margin-top:2px}
+button.done{background:var(--goodbg);color:var(--good)}
+.alts{background:#FAFAFC}.alts .pc{border-top:1px solid var(--line)}
+.forline{display:flex;gap:8px;align-items:center;background:var(--sel);border-radius:10px;padding:6px 10px;font-size:13px;margin-bottom:6px}.forline button{margin-left:auto;padding:3px 8px}
 @media (max-width:900px){body{height:auto}main{grid-template-columns:1fr}#list{max-height:60vh}}
 </style>
 </head>
@@ -299,27 +344,38 @@ async function open(id){
 
   <div class="card"><h3>${ic('calculator')}Расчёт рентабельности</h3>
     <div class="status" id="calcStatus">${calcStatus(l)}</div>
-    <div id="resTiles"></div>
+    <div id="resHead"></div>
     <div id="resWarn"></div>
-    <div class="bidrow"><span class="fl">${ic('hand-money')}<b>Наша цена в заявке, ₸</b><div class="small mut">по умолчанию: сумма лота − ${pct(Math.max(0,lotDisc(l).d))} (${esc(lotDisc(l).src)})</div></span><input type="number" id="c_bid" value="${Math.round(c.bid||defaultBid(l))}"></div>
-    <details class="more" id="itemsBox"><summary>${ic('alt-arrow-down','chev')}Позиции сметы <span class="cnt" id="itemsCnt"></span></summary><div class="in"><div id="items"></div></div></details>
-    ${more('Параметры расчёта','',`<div class="grid2">
+    <div class="cols">
+      <div class="col"><div class="ch">Получаем</div>
+        <div class="small"><b>Наша цена в заявке, ₸</b><span class="s">по умолчанию: сумма лота − ${pct(Math.max(0,lotDisc(l).d))} (${esc(lotDisc(l).src)})</span></div>
+        <input type="number" id="c_bid" class="bidin" value="${Math.round(c.bid||defaultBid(l))}">
+        <div id="colIn"></div>
+      </div>
+      <div class="col"><div class="ch">Тратим <b id="costSum"></b></div>
+        <div class="ln"><span><i class="dot" style="background:var(--c-eq)"></i>Оборудование<span class="s" id="eqS"></span></span><span class="ro" id="eqV"></span></div>
+        <div class="ln"><span><i class="dot" style="background:var(--c-lab)"></i>${l.category==='ТО'?'ТО':'Монтаж'}<span class="s" id="labS"></span></span><input type="number" id="c_labor" value="${c.labor??''}" placeholder="авто"></div>
+        <div class="ln"><span><i class="dot" style="background:var(--c-log)"></i>Логистика<span class="s">пусто = ${pct(S.logistics)} от оборудования</span></span><input type="number" id="c_logistics" value="${c.logistics??''}" placeholder="авто"></div>
+        <div class="ln"><span><i class="dot" style="background:var(--c-oth)"></i>Материалы<span class="s">кабель, крепёж вне сметы</span></span><input type="number" id="c_materials" value="${c.materials||''}" placeholder="0"></div>
+        <div class="ln"><span><i class="dot" style="background:var(--c-oth)"></i>Прочее<span class="s">командировки, проект</span></span><input type="number" id="c_otherCost" value="${c.otherCost||''}" placeholder="0"></div>
+      </div>
+    </div>
+    <div id="resFoot"></div>
+    ${more('Ещё параметры','',`<div class="grid2">
+      <span class="fl">${ic('videocamera-record')}${l.category==='ТО'?'Камер на обслуживании':'Камер к монтажу'} <span class="small mut">(пусто = авто)</span></span><input type="number" id="c_cams" value="${c.cams??''}" placeholder="авто">
+      ${l.category==='ТО'?`<span class="fl">${ic('hourglass')}Месяцев обслуживания</span><input type="number" id="c_months" value="${c.months??''}" placeholder="0">`:''}
       <span class="fl">${ic('box-minimalistic')}Количество, ${esc(sp.unit||'ед.')}</span><input type="number" id="c_qty" value="${c.qty}">
       <span class="fl">${ic('tag-price')}Закупка за ед., ₸ <span class="small mut">(если нет позиций сметы)</span></span><input type="number" id="c_unitCost" value="${c.unitCost||''}" placeholder="0">
       <span class="small"><label><input type="checkbox" id="c_supVat" ${c.supVat!==false?'checked':''}> поставщик с НДС</label></span><span></span>
-      <span class="fl">${ic('box')}Материалы (кабель, крепёж…), ₸</span><input type="number" id="c_materials" value="${c.materials||''}" placeholder="0">
-      <span class="fl">${ic('videocamera-record')}${l.category==='ТО'?'Камер на обслуживании':'Камер к монтажу'} <span class="small mut">(пусто = авто)</span></span><input type="number" id="c_cams" value="${c.cams??''}" placeholder="авто">
-      ${l.category==='ТО'?`<span class="fl">${ic('hourglass')}Месяцев обслуживания</span><input type="number" id="c_months" value="${c.months??''}" placeholder="0">`:''}
-      <span class="fl">${ic('sledgehammer')}${l.category==='ТО'?'Стоимость ТО':'Работы / монтаж'}, ₸ <span class="small mut">(пусто = ${l.category==='ТО'?'камеры × месяцы × ставка ТО':'камеры × ставка по шкале'})</span></span><input type="number" id="c_labor" value="${c.labor??''}" placeholder="авто">
-      <span class="fl">${ic('delivery')}Логистика, ₸ <span class="small mut">(пусто = ${pct(S.logistics)} от оборудования)</span></span><input type="number" id="c_logistics" value="${c.logistics??''}" placeholder="авто">
-      <span class="fl">${ic('routing-2')}Прочее (командировки, проект), ₸</span><input type="number" id="c_otherCost" value="${c.otherCost||''}" placeholder="0">
     </div>`)}
     ${more('Подробности расчёта','','<div id="resMore"></div>')}
     ${notes.length?more('Пояснения автоподбора',notes.length,`<div class="small">${notes.map(n=>`<div class="mut" style="margin:3px 0">• ${esc(n)}</div>`).join('')}<div class="mut" style="margin-top:6px">Любая правка расчёта делает его ручным — автоподбор его больше не трогает.</div></div>`):''}
   </div>
 
-  <div class="card"><h3>${ic('cart-large-2')}Подбор у поставщика · keeper.kz</h3>
-    <div style="display:flex;gap:8px;margin-bottom:8px"><input id="supQ" placeholder="Модель или бренд, напр. DS-2CD1043" style="flex:1"><button id="supGo">${ic('magnifer')}Найти</button></div>
+  <div class="card" id="supCard"><h3>${ic('cart-large-2')}Подбор у поставщика · keeper.kz<span class="r" id="supHd"></span></h3>
+    <div id="items"></div>
+    <div class="search" id="supSearch"><input id="supQ" placeholder="Модель или бренд, напр. DS-2CD1043"><button id="supGo">${ic('magnifer')}Найти</button></div>
+    <div id="supFor"></div>
     <div id="sup" class="small mut">Подбираю…</div>
   </div>
 
@@ -339,48 +395,94 @@ function calcStatus(l){const a=l.auto||{};
   if(l.calc)return `<span class="tag">ручной расчёт</span><button id="btnReset">${ic('refresh')}Вернуть автоподбор</button>`;
   if(a.ok)return `<span class="tag">автоподбор · ${a.bom?'смета по таблице ТЗ':esc(a.tier)}</span>${a.rough?`<span class="tag v-warn">${a.bom?'есть неподобранное':'грубая оценка'}</span>`:''}`;
   return `<span class="tag">нет оценки</span><span class="mut">${esc(a.reason||'автоподбор ещё не запускался')}</span>`}
-let SUP=[];
-function supRender(list,note){SUP=list;const need=+$('#c_qty').value||1;
-  const row=(p,i)=>`<tr>
-    <td>${p.image?`<img src="${p.image}" style="width:36px;height:36px;object-fit:contain;border-radius:6px;background:#fff">`:''}</td>
-    <td><b>${esc(p.name)}</b><div class="mut">${esc(p.brand||'')} · арт. ${p.article} · ${esc(p.why)}</div></td>
-    <td class="num">${fmt(p.cost)}${p.cost_src!=='платина'?`<div style="color:var(--warn)">${esc(p.cost_src)}</div>`:p.price&&p.cost!==p.price?`<div class="mut">золото ${fmt(p.price)}</div>`:''}</td>
-    <td class="num" style="color:${p.quantity>=need?'var(--good)':p.quantity>0?'var(--warn)':'var(--bad)'}">${p.quantity}</td>
-    <td><button data-i="${i}">+ в расчёт</button></td></tr>`;
-  const head='<tr><th></th><th>Товар</th><th class="num">Платина</th><th class="num">Остаток</th><th></th></tr>';
+// ---------- подбор у поставщика: группы по строкам ТЗ + карточки товара ----------
+let SUP=[],SUP_FOR=null; // SUP_FOR — строка ТЗ, для которой ищем товар {src,qty}
+const thumb=(p)=>`<div class="thumb">${p.image?`<img src="${p.image}">`:ic(p.is_camera?'videocamera-record':'box')}</div>`;
+const stockTxt=(n,need)=>n==null?'':n>=need?`<span class="stock t-good">в наличии ${n}</span>`:n>0?`<span class="stock t-warn">мало: ${n} из ${+need}</span>`:`<span class="stock t-bad">нет на складе</span>`;
+const clean=s=>(s||'').replace(/\s*HYPERLINK\s+"[^"]*"/g,'');
+const srcName=s=>clean(s).replace(/\s+—\s+[\d.,]+\s*\S*$/,'');
+function prodCard(p,need,btn){return `<div class="pc">${thumb(p)}
+  <div class="pm"><div class="pn">${esc(p.name)}</div><div class="meta">${p.why?`<span class="tag">${esc(p.why)}</span>`:''}${p.brand?esc(p.brand)+' · ':''}арт. ${p.article}${p.cost_src&&p.cost_src!=='платина'?` · <span class="t-warn">${esc(p.cost_src)}</span>`:''}</div></div>
+  <div class="pr"><div class="pp">${fmt(p.cost)} ₸</div><div class="mul">× ${+need} = ${fmt(p.cost*need)}</div>${stockTxt(p.quantity,need)}${btn}</div></div>`}
+function supRender(list,note){SUP=list;
+  const need=SUP_FOR?SUP_FOR.qty:(+$('#c_qty').value||1);
+  const btn=(p,i)=>{const on=ITEMS.some(x=>x.article===p.article);return `<button data-i="${i}" class="${on?'done':''}">${on?'✓ в расчёте':SUP_FOR?'+ в эту строку':'+ в расчёт'}</button>`};
+  const rows=(a,off)=>a.map((p,i)=>prodCard(p,need,btn(p,i+off))).join('');
+  $('#supFor').innerHTML=SUP_FOR?`<div class="forline">Ищу для строки ТЗ: <b>${esc(srcName(SUP_FOR.src))}</b>, ${+SUP_FOR.qty} шт <button id="supForX">✕</button></div>`:'';
+  if($('#supForX'))$('#supForX').onclick=()=>{SUP_FOR=null;supRender(SUP,note)};
+  const grouped=ITEMS.some(x=>x.src);
   $('#sup').innerHTML=!list.length?'<span class="mut">Ничего не найдено. Попробуйте поиск по модели.</span>'
-    :`<table class="small">${head}${list.slice(0,3).map(row).join('')}</table>`
-     +(list.length>3?more('Ещё варианты',list.length-3,`<table class="small">${head}${list.slice(3).map((p,i)=>row(p,i+3)).join('')}</table>`):'')
+    :grouped&&!SUP_FOR?more('Ещё товары по техспеке',list.length,rows(list,0))
+    :rows(list.slice(0,3),0)+(list.length>3?more('Ещё варианты',list.length-3,rows(list.slice(3),3)):'')
      +(note?more('Как подобрано','',`<div class="mut">${esc(note)}</div>`):'');
-  $('#sup').querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{const p=SUP[+b.dataset.i];ITEMS.push({article:p.article,name:p.name,cost:p.cost,cost_src:p.cost_src,is_camera:p.is_camera,qty:+$('#c_qty').value||1,stock:p.quantity});renderItems();recalc()});
+  $('#sup').querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{const p=SUP[+b.dataset.i];
+    if(ITEMS.some(x=>x.article===p.article))return;
+    ITEMS.push({article:p.article,name:p.name,cost:p.cost,cost_src:p.cost_src,is_camera:p.is_camera,qty:SUP_FOR?SUP_FOR.qty:(+$('#c_qty').value||1),stock:p.quantity,image:p.image,
+      ...(SUP_FOR?{src:SUP_FOR.src}:{})});
+    if(SUP_FOR){SUP_FOR=null;$('#supFor').innerHTML=''}
+    renderItems();recalc();supRender(SUP,note)});
 }
 async function supSearch(q){if(!q.trim())return;$('#sup').textContent='Ищу…';supRender(await api('/api/supplier/search?q='+encodeURIComponent(q)),'')}
 function renderItems(){
-  if($('#itemsCnt'))$('#itemsCnt').textContent=ITEMS.length?ITEMS.length:'нет';
-  $('#items').innerHTML=ITEMS.length?`<table class="small" style="margin-top:10px"><tr><th>Позиция поставщика</th><th class="num">Цена</th><th class="num" style="width:96px">Кол-во</th><th class="num">Сумма</th><th></th></tr>
-  ${ITEMS.map((x,i)=>`<tr><td>${esc(x.name)}${x.src?`<div class="mut">из ТЗ: ${esc(x.src)}${x.tier?' · '+esc(x.tier):''}</div>`:''}${x.is_camera?' <span class="tag">камера</span>':''}${x.cost_src&&x.cost_src!=='платина'?` <span class="tag v-warn">${esc(x.cost_src)}</span>`:''}${x.stock!=null&&x.stock<x.qty?` <span class="tag v-bad">на складе ${x.stock}</span>`:''}</td><td class="num">${fmt(x.cost)}</td>
-  <td><input type="number" data-q="${i}" value="${x.qty}" style="padding:6px 8px"></td><td class="num">${fmt(x.cost*x.qty)}</td><td><button data-d="${i}">✕</button></td></tr>`).join('')}</table>`:'<div class="small mut">Позиций нет — добавьте из «Подбора у поставщика».</div>';
+  const un=((CUR.auto||{}).unmatched||[]).filter(u=>!ITEMS.some(x=>x.src&&u.startsWith(srcName(x.src))));
+  const it=(x,i)=>`<div class="grp"><div class="gh"><span><b>${esc(x.src?srcName(x.src):x.is_camera?'Камеры':'Без строки ТЗ')}</b>${x.src?` <span class="mut">· по ТЗ ${esc(clean(x.src).slice(srcName(x.src).length).replace(/^\s*—\s*/,''))}</span>`:''}</span><b class="num">${fmt(x.cost*x.qty)} ₸</b></div>
+    <div class="pc">${thumb(x)}
+      <div class="pm"><div class="pn">${esc(x.name)}</div><div class="meta">${x.tier?`<span class="tag">${esc(x.tier)}</span>`:''}арт. ${x.article}${x.cost_src&&x.cost_src!=='платина'?` · <span class="t-warn">${esc(x.cost_src)}</span>`:''}${x.is_camera?' · камера':''} · ${stockTxt(x.stock,x.qty)}</div>
+        <div class="acts"><button data-alt="${i}">Другие варианты</button><button data-d="${i}" title="Убрать из расчёта">Убрать</button></div></div>
+      <div class="pr"><div class="pp">${fmt(x.cost)} ₸</div><div class="mul">× <input type="number" data-q="${i}" value="${x.qty}"></div></div></div>
+    <div class="alts" id="alt${i}"></div></div>`;
+  const miss=u=>{u=clean(u);const m=u.match(/^(.*?) — ([\d.,]+) (\S+)(?: \((.*)\))?$/)||[,u,1,'',''];
+    return `<div class="grp miss"><div class="gh"><span><b>${esc(m[1])}</b> <span class="mut">· по ТЗ ${esc(m[2])} ${esc(m[3])}</span><span class="s t-warn">не подобрано${m[4]?': '+esc(m[4]):''} · не в расчёте</span></span><button data-find="${esc(m[1])}" data-fq="${esc(m[2])}" data-fs="${esc(u.replace(/ \(.*\)$/,''))}">${ic('magnifer')}Найти</button></div></div>`};
+  $('#items').innerHTML=ITEMS.map(it).join('')+un.map(miss).join('')
+    +(!ITEMS.length&&!un.length?'<div class="empty">'+ic('info-circle')+'<div>Позиций в расчёте нет. Найдите товар ниже и нажмите «+ в расчёт».</div></div>':'');
   $('#items').querySelectorAll('input[data-q]').forEach(el=>{el.oninput=()=>{ITEMS[+el.dataset.q].qty=+el.value;recalc()};el.onchange=()=>renderItems()});
   $('#items').querySelectorAll('button[data-d]').forEach(b=>b.onclick=()=>{ITEMS.splice(+b.dataset.d,1);renderItems();recalc()});
+  $('#items').querySelectorAll('button[data-find]').forEach(b=>b.onclick=()=>{SUP_FOR={src:b.dataset.fs,qty:+String(b.dataset.fq).replace(',','.')||1};$('#supQ').value=b.dataset.find;supSearch(b.dataset.find);$('#supSearch').scrollIntoView({block:'center',behavior:'smooth'})});
+  $('#items').querySelectorAll('button[data-alt]').forEach(b=>b.onclick=async()=>{const i=+b.dataset.alt,box=$('#alt'+i);
+    if(box.innerHTML){box.innerHTML='';return}
+    box.innerHTML='<div class="small mut" style="padding:8px 12px">Ищу похожие…</div>';
+    const list=await api('/api/supplier/similar?article='+ITEMS[i].article),x=ITEMS[i];
+    box.innerHTML=list.length?list.map((p,j)=>{const d=(p.cost-x.cost)*x.qty;return prodCard(p,x.qty,`<button data-pick="${j}">Выбрать <span class="${d>0?'t-bad':'t-good'}">${d>0?'+':'−'}${fmt(Math.abs(d))}</span></button>`)}).join(''):'<div class="small mut" style="padding:8px 12px">Других товаров в этой категории нет.</div>';
+    box.querySelectorAll('button[data-pick]').forEach(pb=>pb.onclick=()=>{const p=list[+pb.dataset.pick];
+      ITEMS[i]={...x,article:p.article,name:p.name,cost:p.cost,cost_src:p.cost_src,stock:p.quantity,image:p.image,is_camera:x.is_camera||p.is_camera,tier:'выбрано вручную'};renderItems();recalc()});
+  });
 }
 let ITEMS=[];
 function readCalc(){const c={items:ITEMS};['qty','cams','months','unitCost','materials','labor','logistics','otherCost','bid'].forEach(k=>{const e=$('#c_'+k);if(e&&e.value!=='')c[k]=+e.value});c.supVat=$('#c_supVat').checked;return c}
 let saveT;
 function recalc(first){
   const c=readCalc(),r=compute(CUR,c),f=compute(CUR,{...c,bid:CUR.price});
-  const cls=r.verdict?'v-'+r.verdict:'';
-  $('#resTiles').innerHTML=`<div class="res" style="margin-top:0">
-    <div class="${cls}"><div class="small rk">${ic('wallet-money')}Чистая прибыль</div><div class="big">${fmt(r.net)} ₸</div><div class="small">${r.verdict?VLAB[r.verdict]:'нет себестоимости'}</div></div>
-    <div><div class="small mut rk">${ic('graph-up')}Рентабельность</div><div class="big">${pct(r.margin)}</div><div class="small mut">цель ${pct(S.target)}</div></div>
-    <div><div class="small mut rk">${ic('tag-price')}Мин. цена</div><div class="big">${fmt(r.minBid)}</div><div class="small mut">${r.minBid>CUR.price?'выше суммы лота':'скидка до '+pct(1-r.minBid/CUR.price)}</div></div>
-  </div>`;
+  const known=!!r.verdict,rest=r.other-r.labor;
+  const taxes=r.bid-r.equip-r.other-r.logi-r.net; // всё, что уходит государству (упрощёнка / НДС к уплате + КПН)
+  // полоса: на что уходит цена в заявке
+  const parts=[['Оборудование','--c-eq',r.equip],[r.isTO?'ТО':'Монтаж','--c-lab',r.labor],['Материалы и прочее','--c-oth',rest],['Логистика','--c-log',r.logi],['Налоги','--c-tax',taxes],['Прибыль','--c-net',Math.max(0,r.net)]];
+  const total=parts.reduce((a,p)=>a+Math.max(0,p[2]),0)||1;
+  $('#resHead').innerHTML=!known?`<div class="empty">${ic('danger-triangle')}<div><b>Прибыль пока не посчитать — нет себестоимости.</b> Добавьте товары в «Подборе у поставщика» ниже или впишите расходы справа.</div></div>`:`<div class="rhead">
+    <div><div class="small mut rk">${ic('wallet-money')}Чистая прибыль</div><div class="huge ${known?'t-'+r.verdict:'mut'}">${known?fmt(r.net)+' ₸':'—'}</div></div>
+    <div style="text-align:right">${known?`<span class="tag v-${r.verdict}">${VLAB[r.verdict]}</span>`:'<span class="tag v-warn">нет себестоимости</span>'}<div class="big">${known?pct(r.margin):'—'}</div><div class="small mut">рентабельность · цель ${pct(S.target)}</div></div></div>
+    ${known?`<div class="stack">${parts.filter(p=>p[2]>0).map(([n,col,v])=>`<div style="flex:0 0 ${v/total*100}%;background:var(${col})" title="${n}: ${fmt(v)} ₸ (${pct(v/r.bid)})">${v/total>.11?n:''}</div>`).join('')}</div>
+    <div class="ax"><span>0</span><span>${r.net<0?`<b class="t-bad">расходы и налоги больше цены на ${fmt(-r.net)} ₸</b>`:`цена в заявке ${fmt(r.bid)} ₸`}</span></div>`
+    :`<div class="empty">${ic('danger-triangle')}<div><b>Прибыль пока не посчитать.</b> Добавьте товары в «Подборе у поставщика» ниже или впишите расходы справа.</div></div>`}`;
   $('#resWarn').innerHTML=CUR.dumping_price&&r.bid<CUR.dumping_price?`<div class="warnline">${ic('danger-triangle')}Цена ниже порога демпинга ${fmt(CUR.dumping_price)} ₸</div>`:'';
+  const sh=v=>r.bid?`<span class="p">${pct(v/r.bid)}</span>`:'';
+  $('#colIn').innerHTML=(S.tax==='our'
+    ?`<div class="ln"><span><i class="dot" style="background:var(--c-tax)"></i>НДС ${pct(S.vat)} к уплате + КПН ${pct(S.kpn)}</span><span class="ro">−${fmt(taxes)}</span></div>`
+    :`<div class="ln"><span><i class="dot" style="background:var(--c-tax)"></i>Налог<span class="s">упрощёнка ${pct(S.simple)} с цены</span></span><span class="ro">−${fmt(taxes)}</span></div>`)
+    +`<div class="ln"><span><b>Остаётся на расходы и прибыль</b></span><span class="ro">${fmt(r.bid-taxes)}</span></div>`;
+  $('#costSum').textContent=fmt(r.equip+r.other+r.logi)+' ₸';
+  $('#eqV').textContent=fmt(r.equip);
+  $('#eqS').innerHTML=ITEMS.length?`${ITEMS.length} поз. · <a href="#" id="toSup">смета ↓</a>`:c.unitCost?`${fmt(c.unitCost)} × ${r.qty}`:'<span class="t-warn">нет позиций · <a href="#" id="toSup">подобрать ↓</a></span>';
+  if($('#toSup'))$('#toSup').onclick=e=>{e.preventDefault();$('#supCard').scrollIntoView({behavior:'smooth'})};
+  $('#labS').textContent=c.labor!=null?'вписано вручную':r.isTO?(r.cams&&r.months?`авто: ${r.cams} кам. × ${r.months} мес. × ${S.toRate===''?'ставка не задана':fmt(+S.toRate)}`:'авто: задайте камеры и месяцы'):r.cams?`авто: ${r.cams} кам. × ${fmt(instRate(r.cams))} ₸`:'авто: камер нет';
+  $('#c_labor').placeholder=fmt(r.labor);$('#c_logistics').placeholder=fmt(r.logi);
+  $('#resFoot').innerHTML=known?`<div class="foot"><span>${ic('tag-price')}Мин. цена для ${pct(S.target)}: <b>${fmt(r.minBid)} ₸</b> <span class="mut">${r.minBid>CUR.price?'выше суммы лота':'скидка до '+pct(1-r.minBid/CUR.price)}</span></span><span>${ic('box')}Деньги на старте: <b>${fmt(r.needCash)} ₸</b></span></div>`:'';
+  $('#supHd').innerHTML=ITEMS.length?`в расчёте ${ITEMS.length} поз. на <b>${fmt(r.equip)} ₸</b>`:'';
   $('#resMore').innerHTML=`<div class="kv small">
     <span class="k">${ic('sale-square')}Без скидки</span><span>по полной сумме ${fmt(CUR.price)} ₸: прибыль <b>${fmt(f.net)} ₸</b> (${pct(f.margin)})</span>
     <span class="k">${ic('case-minimalistic')}Режим</span><span>${S.tax==='our'?`НДС ${pct(S.vat)} + КПН ${pct(S.kpn)}`:`упрощёнка ${pct(S.simple)} с оборота`}</span>
     <span class="k">${ic('wallet-money')}Выручка${S.tax==='our'?' без НДС':''}</span><span>${fmt(r.revNet)} ₸</span>
-    <span class="k">${ic('cart-large-2')}Расходы${S.tax==='our'?' без НДС':''}</span><span>${fmt(r.costNet)} ₸ (оборудование ${fmt(r.equip)}, логистика ${fmt(r.logi)}, ${r.isTO?`ТО ${fmt(r.labor)}${r.cams&&r.months?` (${r.cams} кам. × ${r.months} мес. × ${S.toRate===''?'ставка не задана':fmt(+S.toRate)})`:''}`:`монтаж ${fmt(r.labor)}${r.cams?` за ${r.cams} кам. по ${fmt(instRate(r.cams))} (${instTier(r.cams)})`:''}`}, прочее ${fmt(r.other-r.labor)})</span>
-    <span class="k">${ic('document-text')}Налог</span><span>${fmt(r.tax)} ₸</span>
+    <span class="k">${ic('cart-large-2')}Расходы${S.tax==='our'?' без НДС':''}</span><span>${fmt(r.costNet)} ₸</span>
+    <span class="k">${ic('document-text')}Налог${S.tax==='our'?' (КПН)':''}</span><span>${fmt(r.tax)} ₸</span>
     <span class="k">${ic('box')}Деньги на старте</span><span>${fmt(r.needCash)} ₸ <span class="mut">(закупка + обеспечения заявки ${pct(S.bidSec)} и договора ${pct(S.perfSec)})</span></span>
   </div>`;
   if(first!==true){clearTimeout(saveT);saveT=setTimeout(async()=>{await api('/api/calc/'+CUR.id,c);const L=LOTS.find(x=>x.id===CUR.id);if(L)L.calc=c;render();if(!$('#btnReset')){$('#calcStatus').innerHTML=calcStatus({calc:c});$('#btnReset').onclick=async()=>{await api('/api/calc/'+CUR.id,{reset:true});if(L)L.calc=null;open(CUR.id)}}},500)}
@@ -453,7 +555,7 @@ function settings(){
 // сразу пересчитать список и открытую карточку, сохранить через полсекунды
 function applyParams(){
   render();
-  if(CUR&&$('#resTiles')){$('#c_bid').value=Math.round((CUR.calc&&CUR.calc.bid)||defaultBid(CUR));recalc(true)}
+  if(CUR&&$('#resHead')){$('#c_bid').value=Math.round((CUR.calc&&CUR.calc.bid)||defaultBid(CUR));recalc(true)}
   $('#pSaved').textContent='сохраняю…';
   clearTimeout(paramT);paramT=setTimeout(async()=>{await api('/api/settings',S);$('#pSaved').textContent='✓ сохранено'},500);
 }

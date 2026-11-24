@@ -212,6 +212,18 @@ class H(BaseHTTPRequestHandler):
                            "ORDER BY quantity>0 DESC, COALESCE(NULLIF(final_price,0),price) LIMIT 30",
                            (f"%{n}%", f"%{qv.upper()}%"))
             return self.send(200, [supplier.row_out(r, "поиск", 0) for r in rows])
+        if p.startswith("/api/supplier/similar"):
+            # другие варианты к позиции сметы: та же категория поставщика, сначала в наличии и дешевле
+            from urllib.parse import parse_qs, urlparse
+            art = int((parse_qs(urlparse(self.path).query).get("article") or ["0"])[0] or 0)
+            base = store.q("SELECT category FROM supplier_products WHERE article=?", (art,))
+            if not base:
+                return self.send(200, [])
+            rows = store.q("SELECT * FROM supplier_products WHERE category=? AND article<>? "
+                           "ORDER BY quantity>0 DESC, COALESCE(NULLIF(final_price,0),price) LIMIT 40",
+                           (base[0]["category"], art))
+            out = [supplier.row_out(r, "та же категория", 0) for r in rows if supplier.cost_of(dict(r))]
+            return self.send(200, out[:8])
         if p.startswith("/api/lot/"):
             lid = int(p.rsplit("/", 1)[1])
             r = store.q("SELECT * FROM lots WHERE id=?", (lid,))
