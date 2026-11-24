@@ -266,11 +266,7 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/api/supplier/search"):
             from urllib.parse import parse_qs, urlparse
             qv = (parse_qs(urlparse(self.path).query).get("q") or [""])[0]
-            n = supplier.norm(qv)
-            rows = store.q("SELECT * FROM supplier_products WHERE norm LIKE ? OR UPPER(brand) LIKE ? "
-                           "ORDER BY quantity>0 DESC, COALESCE(NULLIF(final_price,0),price) LIMIT 30",
-                           (f"%{n}%", f"%{qv.upper()}%"))
-            return self.send(200, [supplier.row_out(r, "поиск", 0) for r in rows])
+            return self.send(200, supplier.search(qv))
         if p.startswith("/api/supplier/similar"):
             # другие варианты к позиции сметы: та же категория поставщика, сначала в наличии и дешевле
             from urllib.parse import parse_qs, urlparse

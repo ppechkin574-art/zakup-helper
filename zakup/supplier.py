@@ -6,6 +6,7 @@
 """
 import json
 import os
+import math
 import re
 import threading
 import time
@@ -275,3 +276,61 @@ def match_lot(spec_text, lot_name, limit=12):
             scored.sort(key=lambda x: (-x["score"], x["cost"] or 1e18))
             cands += scored[: limit - len(cands)]
     return {"models": models[:20], "candidates": cands[:limit]}
+
+
+# ---------- поиск по словам (кнопка «Найти») ----------
+
+STOP = {"для", "и", "с", "в", "на", "под", "из", "по", "от", "до", "шт", "мм", "м", "не", "менее", "более", "или", "без", "со"}
+
+
+def _plain(s):
+    s = (s or "").lower().replace("ё", "е").replace("ъ", "").replace("ь", "")  # «разьем» = «разъем»
+    return re.sub(r"(\d)\s*[xх×*]\s*(\d)", r"\1x\2", s)  # 10 х 15 → 10x15
+
+
+def _tokens(q):
+    out = []
+    for w in re.findall(r"\d+(?:[.,]\d+)?x\d+(?:[.,]\d+)?|[a-zа-я0-9][a-zа-я0-9.,/-]*", _plain(q)):
+        w = w.strip(".,/-")
+        if len(w) < 2 or w in STOP:
+            continue
+        if re.fullmatch(r"\d+(?:[.,]\d+)?x\d+(?:[.,]\d+)?", w):
+            a, b = w.split("x")
+            out.append(("size", (f"{a}x{b}", f"{b}x{a}")))
+        elif re.fullmatch(r"[а-я]+", w) and len(w) > 5:
+            out.append(("word", w[:max(5, len(w) - 3)]))  # без окончания: «накладная» ≈ «накладн»
+        else:
+            out.append(("word", w))
+    return out
+
+
+def search(q, limit=30):
+    """Сначала точная модель (как раньше), потом товары, где совпало больше слов запроса; в наличии и дешевле — выше."""
+    n = norm(q)
+    rows = store.q("SELECT * FROM supplier_products WHERE norm LIKE ? OR UPPER(brand) LIKE ? "
+                   "ORDER BY quantity>0 DESC, COALESCE(NULLIF(final_price,0),price) LIMIT ?",
+                   (f"%{n}%", f"%{(q or '').upper()}%", limit)) if len(n) >= 4 else []
+    seen = {r["article"] for r in rows}
+    out = [row_out(r, "поиск", 100) for r in rows]
+    toks = _tokens(q)
+    if not toks:
+        return out
+    need = max(1, -(-len(toks) // 2))  # не меньше половины слов
+    hits = []
+    df = [0] * len(toks)
+    for r in store.q("SELECT * FROM supplier_products"):
+        if r["article"] in seen:
+            continue
+        name = _plain(r["name"]) + " " + _plain(r["brand"])
+        m = [i for i, (kind, v) in enumerate(toks) if (any(s in name for s in v) if kind == "size" else v in name)]
+        for i in m:
+            df[i] += 1
+        if len(m) >= need:
+            hits.append((m, r))
+    # редкое слово (BNC, размер, модель) важнее частого («кабель», «разъём»)
+    total = max(sum(df), 1)
+    w = [math.log(1 + total / (d or 1)) for d in df]
+    scored = sorted(((sum(w[i] for i in m), len(m), r) for m, r in hits),
+                    key=lambda x: (-x[0], x[2]["quantity"] <= 0, cost_of(dict(x[2])) or 1e18))
+    out += [row_out(r, f"совпало слов: {n} из {len(toks)}", round(s, 1)) for s, n, r in scored[:limit - len(out)]]
+    return out
