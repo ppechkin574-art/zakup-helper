@@ -191,6 +191,8 @@ button.done{background:var(--goodbg);color:var(--good)}
 .links{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;margin-top:12px}
 .upl{display:inline-flex;gap:6px;align-items:center;background:var(--fill);color:var(--acc-ink);border-radius:10px;padding:6px 12px;cursor:pointer;font-weight:500;font-size:13px}
 .upl:hover{background:var(--line)}
+.gaps{display:flex;gap:10px;background:var(--warnbg);border-radius:12px;padding:10px 12px;margin-top:10px;font-size:13px;line-height:1.45}
+.gaps>.ic{color:var(--warn);width:1.4em;height:1.4em;flex:none}.gaps div div{margin-top:4px}
 .grpline{display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center;background:var(--fill);border-radius:10px;padding:8px 12px;margin:-4px 0 12px;font-size:13px}
 .lot .why{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:var(--mut);margin-top:-4px}
 @media (max-width:900px){body{height:auto}main{grid-template-columns:1fr}#list{max-height:60vh}}
@@ -229,7 +231,7 @@ const $=s=>document.querySelector(s);
 const fmt=n=>n==null||isNaN(n)?'—':Math.round(n).toLocaleString('ru-RU');
 const pct=n=>n==null||isNaN(n)?'—':(n*100).toFixed(1)+'%';
 // правила — docs/ECONOMICS.md
-const DEF={tax:'simple',vat:0.16,kpn:0.20,simple:0.04,target:0.15,warnFrom:0.05,minProfit:50000,bidSec:0.01,perfSec:0.03,logistics:0.03,
+const DEF={tax:'simple',vat:0.16,kpn:0.20,simple:0.04,target:0.15,warnFrom:0.05,minProfit:50000,suspectFrom:0.40,bidSec:0.01,perfSec:0.03,logistics:0.03,
   inst1:20000,instT1:10,inst2:18000,instT2:30,inst3:15000,toRate:'',discNoHist:0.10,minDeals:5,discSingle:0,bin:''};
 // монтаж под ключ за камеру: ставка зависит от числа камер на объекте и применяется ко всем камерам
 function instRate(n){return n>S.instT2?S.inst3:n>S.instT1?S.inst2:S.inst1}
@@ -316,6 +318,8 @@ function lotGroup(l){const f=l.flags||{},r=l._r||compute(l,effCalc(l)),a=l.auto|
   }
   const noPrice=((effCalc(l)||{}).items||[]).filter(i=>i.manual&&!(i.cost>0)).length;
   if(noPrice)return {g:'manual',why:`${noPrice} ${noPrice===1?'строка':noPrice<5?'строки':'строк'} сметы без цены — нет у поставщика, впишите в карточке`};
+  if(!l.calc&&(a.gaps||[]).length&&r.verdict!=='bad')return {g:'manual',why:'в тексте ТЗ есть, в смете нет: '+a.gaps.join(', ')};
+  if(!l.calc&&l.install&&r.verdict&&r.margin>(+S.suspectFrom||1))return {g:'manual',why:`подозрительно высокая прибыль ${pct(r.margin)} — проверьте, всё ли из ТЗ в смете`};
   if(r.verdict)return {g:r.verdict};
   if(f.no_docs)return {g:'manual',why:l.system==='SKK'?'ТЗ на портале Самрук-Қазына — скачайте и загрузите в карточке лота':'к лоту нет документов — можно загрузить ТЗ в карточке'};
   if(f.scan)return {g:'manual',why:'ТЗ — скан без списка оборудования'};
@@ -517,17 +521,21 @@ function recalc(first){
   const c=readCalc(),r=compute(CUR,c),f=compute(CUR,{...c,bid:CUR.price});
   const known=!!r.verdict,rest=r.other-r.labor;
   const np=ITEMS.filter(i=>i.manual&&!(i.cost>0)).length; // строки сметы без цены
+  const draft=known&&lotGroup({...CUR,calc:first===true?CUR.calc:c,_r:r}).g==='manual'; // лот на ручной проверке — цифры черновые
   const taxes=r.bid-r.equip-r.other-r.logi-r.net; // всё, что уходит государству (упрощёнка / НДС к уплате + КПН)
   // полоса: на что уходит цена в заявке
   const parts=[['Оборудование','--c-eq',r.equip],[r.isTO?'ТО':'Монтаж','--c-lab',r.labor],['Материалы и прочее','--c-oth',rest],['Логистика','--c-log',r.logi],['Налоги','--c-tax',taxes],['Прибыль','--c-net',Math.max(0,r.net)]];
   const total=parts.reduce((a,p)=>a+Math.max(0,p[2]),0)||1;
   $('#resHead').innerHTML=!known?`<div class="empty">${ic('danger-triangle')}<div><b>Прибыль пока не посчитать — нет себестоимости.</b> Добавьте товары в «Подборе у поставщика» ниже или впишите расходы справа.</div></div>`:`<div class="rhead">
-    <div><div class="small mut rk">${ic('wallet-money')}Чистая прибыль</div><div class="huge ${known?'t-'+r.verdict:'mut'}">${known?fmt(r.net)+' ₸':'—'}</div></div>
-    <div style="text-align:right">${known?`<span class="tag v-${r.verdict}">${VLAB[r.verdict]}</span>`:'<span class="tag v-warn">нет себестоимости</span>'}<div class="big">${known?pct(r.margin):'—'}</div><div class="small mut">рентабельность · цель ${pct(S.target)}</div></div></div>
+    <div><div class="small mut rk">${ic('wallet-money')}Чистая прибыль${draft?' (черновик)':''}</div><div class="huge ${known&&!draft?'t-'+r.verdict:'mut'}">${known?fmt(r.net)+' ₸':'—'}</div></div>
+    <div style="text-align:right">${draft?'<span class="tag v-warn">черновик — проверьте ТЗ</span>':known?`<span class="tag v-${r.verdict}">${VLAB[r.verdict]}</span>`:'<span class="tag v-warn">нет себестоимости</span>'}<div class="big">${known?pct(r.margin):'—'}</div><div class="small mut">рентабельность · цель ${pct(S.target)}</div></div></div>
     ${known?`<div class="stack">${parts.filter(p=>p[2]>0).map(([n,col,v])=>`<div style="flex:0 0 ${v/total*100}%;background:var(${col})" title="${n}: ${fmt(v)} ₸ (${pct(v/r.bid)})">${v/total>.11?n:''}</div>`).join('')}</div>
     <div class="ax"><span>0</span><span>${r.net<0?`<b class="t-bad">расходы и налоги больше цены на ${fmt(-r.net)} ₸</b>`:`цена в заявке ${fmt(r.bid)} ₸`}</span></div>`
     :`<div class="empty">${ic('danger-triangle')}<div><b>Прибыль пока не посчитать.</b> Добавьте товары в «Подборе у поставщика» ниже или впишите расходы справа.</div></div>`}`;
   $('#resWarn').innerHTML=(CUR.dumping_price&&r.bid<CUR.dumping_price?`<div class="warnline">${ic('danger-triangle')}Цена ниже порога демпинга ${fmt(CUR.dumping_price)} ₸</div>`:'')
+    +(()=>{const a=CUR.auto||{},g=a.gaps||[],w=a.text_works||[];return g.length||w.length?`<div class="gaps">${ic('danger-triangle')}<div><b>Не посчитано — проверьте ТЗ</b>
+      ${g.length?`<div>Оборудование из текста ТЗ, которого нет в смете: <b>${g.map(esc).join(', ')}</b>. Добавьте через поиск у поставщика или впишите суммой в «Прочее».</div>`:''}
+      ${w.length?`<div>Работы из ТЗ, которых нет в ставке за камеру: <b>${w.map(esc).join(', ')}</b>. Если они платные для вас — впишите в «Прочее».</div>`:''}</div></div>`:''})()
     +(np&&known?`<div class="warnline" style="color:var(--warn)">${ic('danger-triangle')}Прибыль завышена: ${np} ${np===1?'строка':'строки'} сметы без цены. Впишите цену в «Подборе у поставщика» ниже.</div>`:'');
   const sh=v=>r.bid?`<span class="p">${pct(v/r.bid)}</span>`:'';
   $('#colIn').innerHTML=(S.tax==='our'
@@ -592,6 +600,7 @@ const PARAMS=[
   {g:'Оценка лота',items:[
     {k:'target',l:'«Выгодно» — от',u:'%',t:'Рентабельность = чистая прибыль / наша цена в заявке. От этого порога лот помечается «выгодно» (зелёный). По нему же считается минимальная цена.'},
     {k:'warnFrom',l:'«На грани» — от',u:'%',t:'От этого порога до порога «выгодно» лот помечается «на грани» (оранжевый). Ниже — «невыгодно» (красный).'},
+    {k:'suspectFrom',l:'Подозрительно высокая — от',u:'%',t:'Если у лота с монтажом рентабельность выше этого порога, скорее всего в смете чего-то не хватает (сервер, шкаф, работы). Такой лот уходит в «Посмотреть вручную» с пометкой «проверьте ТЗ». Ваш ручной расчёт снимает пометку.'},
     {k:'minProfit',l:'Минимальная прибыль',u:'₸',step:10000,t:'Если чистая прибыль меньше этой суммы, лот «невыгодный», даже при хорошем проценте: мелкий лот не стоит выезда и возни.'},
   ]},
   {g:'Деньги на старте',items:[
