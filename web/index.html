@@ -246,7 +246,52 @@ function instRate(n){return n>S.instT2?S.inst3:n>S.instT1?S.inst2:S.inst1}
 function instTier(n){return n>S.instT2?`от ${S.instT2+1} камер`:n>S.instT1?`${S.instT1+1}–${S.instT2} камер`:`до ${S.instT1} камер`}
 let URG=false, S=Object.assign({},DEF), LOTS=[], CUR=null, sortK='end', sortDir=1;
 
-async function api(p,body){const r=await fetch(p,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});return r.json()}
+// Сайт на GitHub Pages (window.STATIC): данных сервера нет — страница читает файлы data/, собранные build_static.py,
+// а ваши правки (расчёты, параметры) хранит в этом браузере (docs/DEPLOY.md)
+const STATIC=!!window.STATIC;
+const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},
+  set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+async function getJSON(u,d){try{const r=await fetch(u,{cache:'no-cache'});return r.ok?await r.json():d}catch(e){return d}}
+async function api(p,body){
+  if(!STATIC){const r=await fetch(p,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});return r.json()}
+  const [path,qs]=p.split('?'),q=new URLSearchParams(qs||''),id=path.split('/').pop();
+  if(body){
+    if(path.startsWith('/api/calc/')){body.reset?LS.del('calc:'+id):LS.set('calc:'+id,body);return {ok:true}}
+    if(path==='/api/settings'){LS.set('settings',body);return {ok:true}}
+    return {ok:false,error:'на сайте недоступно — только в локальной версии'};
+  }
+  if(path==='/api/settings')return LS.get('settings',{});
+  if(path==='/api/status')return getJSON('data/status.json',{});
+  if(path==='/api/lots'){const L=await getJSON('data/lots.json',[]);L.forEach(l=>{const c=LS.get('calc:'+l.id,null);if(c)l.calc=c});return L}
+  if(path.startsWith('/api/lot/')){const l=await getJSON(`data/lot/${id}.json`,{});const c=LS.get('calc:'+id,null);if(c)l.calc=c;return l}
+  if(path.startsWith('/api/match/'))return getJSON(`data/match/${id}.json`,{candidates:[],models:[]});
+  if(path==='/api/supplier/similar')return getJSON(`data/similar/${q.get('article')}.json`,[]);
+  if(path==='/api/supplier/search')return catalogSearch(q.get('q')||'');
+  return {};
+}
+// поиск «Найти» в браузере — то же, что zakup/supplier.py → search: модель, затем слова (редкие весят больше)
+let CATALOG=null;
+const SRC=['платина','золото (платина по запросу)','цена по запросу'];
+const plain=s=>(s||'').toLowerCase().replace(/ё/g,'е').replace(/[ъь]/g,'').replace(/(\d)\s*[xх×*]\s*(\d)/g,'$1x$2');
+const normM=s=>(s||'').toUpperCase().replace(/О/g,'O').replace(/С/g,'C').replace(/Е/g,'E').replace(/А/g,'A').replace(/Р/g,'P').replace(/Х/g,'X').replace(/К/g,'K').replace(/М/g,'M').replace(/Т/g,'T').replace(/Н/g,'H').replace(/В/g,'B').replace(/[^A-Z0-9]/g,'');
+const STOPW=new Set(['для','и','с','в','на','под','из','по','от','до','шт','мм','м','не','менее','более','или','без','со']);
+function qTokens(q){const out=[];for(let w of plain(q).match(/\d+(?:[.,]\d+)?x\d+(?:[.,]\d+)?|[a-zа-я0-9][a-zа-я0-9.,\/-]*/g)||[]){
+  w=w.replace(/^[.,\/-]+|[.,\/-]+$/g,'');if(w.length<2||STOPW.has(w))continue;
+  const sz=w.match(/^(\d+(?:[.,]\d+)?)x(\d+(?:[.,]\d+)?)$/);
+  if(sz)out.push(['size',[`${sz[1]}x${sz[2]}`,`${sz[2]}x${sz[1]}`]]);
+  else if(/^[а-я]+$/.test(w)&&w.length>5)out.push(['word',w.slice(0,Math.max(5,w.length-3))]);else out.push(['word',w])}return out}
+async function catalogSearch(q,limit=30){
+  if(!CATALOG)CATALOG=(await getJSON('data/catalog.json',[])).map(r=>({article:r[0],name:r[1],brand:r[2],category:r[3],cost:r[4],cost_src:SRC[r[5]],quantity:r[6],is_camera:!!r[7],_p:plain(r[1]+' '+r[2]),_n:normM(r[1])}));
+  const n=normM(q),seen=new Set(),out=[];
+  if(n.length>=4)for(const p of CATALOG.filter(p=>p._n.includes(n)).sort((a,b)=>(a.quantity<=0)-(b.quantity<=0)||(a.cost||1e18)-(b.cost||1e18)).slice(0,limit)){seen.add(p.article);out.push({...p,why:'поиск'})}
+  const T=qTokens(q);if(!T.length)return out;
+  const need=Math.max(1,Math.ceil(T.length/2)),df=T.map(()=>0),hits=[];
+  for(const p of CATALOG){if(seen.has(p.article))continue;const m=[];T.forEach(([k,v],i)=>{if(k==='size'?v.some(s=>p._p.includes(s)):p._p.includes(v)){m.push(i);df[i]++}});if(m.length>=need)hits.push([m,p])}
+  const total=Math.max(df.reduce((a,b)=>a+b,0),1),w=df.map(d=>Math.log(1+total/(d||1)));
+  hits.map(([m,p])=>[m.reduce((a,i)=>a+w[i],0),m.length,p]).sort((a,b)=>b[0]-a[0]||(a[2].quantity<=0)-(b[2].quantity<=0)||(a[2].cost||1e18)-(b[2].cost||1e18))
+    .slice(0,limit-out.length).forEach(([s,k,p])=>out.push({...p,why:`совпало слов: ${k} из ${T.length}`}));
+  return out;
+}
 
 // сколько осталось до окончания приёма заявок — от текущего момента
 function leftText(end){
@@ -391,7 +436,7 @@ async function open(id){
     <div class="links">${l.system==='ЭГЗ'?`<a href="https://old.goszakup.gov.kz/ru/announce/index/${l.ann_ext}" target="_blank">Открыть на портале ↗</a>`
       :l.system==='SKK'?`<a href="https://zakup.sk.kz/#/ext(popup:item/${encodeURIComponent(l.ann_number)}/advert)" target="_blank">Открыть закупку на zakup.sk.kz ↗</a>`
       :`<span class="mut small">Площадка ${esc(l.system)}: ищите № ${esc(l.ann_number)} на <a href="https://zakup.gov.kz" target="_blank">zakup.gov.kz</a></span>`}
-      <label class="upl" title="PDF, Word или Excel — программа прочитает ТЗ и пересчитает лот">${ic('document')}Загрузить ТЗ<input type="file" id="tsFile" multiple accept=".pdf,.doc,.docx,.rtf,.xlsx" hidden></label>
+      <label class="upl" ${STATIC?'style="display:none"':''} title="PDF, Word или Excel — программа прочитает ТЗ и пересчитает лот">${ic('document')}Загрузить ТЗ<input type="file" id="tsFile" multiple accept=".pdf,.doc,.docx,.rtf,.xlsx" hidden></label>
       <span id="tsUp" class="small mut">${((l.techspec||{}).uploads||[]).length?'загружено: '+l.techspec.uploads.map(u=>esc(u.name)).join(', '):''}</span></div>
     ${more('Подробнее о лоте','',`<div class="kv small">
       <span class="k">${ic('document')}Номер</span><span>${esc(l.ann_number)} · лот ${esc(l.lot_number)} · ${esc(l.system)}</span>
@@ -662,6 +707,7 @@ async function load(){
 }
 async function poll(){
   const s=await api('/api/status');
+  if(STATIC){$('#btnRef .lbl').textContent='Обновлено '+(s.built_at?new Date(s.built_at*1000).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—');$('#btnRef').disabled=true;$('#btnRef').title='Сайт обновляется сам раз в час';if(poll.b&&s.built_at!==poll.b)load();poll.b=s.built_at;return}
   $('#btnRef .lbl').textContent=s.running?s.stage:'Обновить';
   $('#btnRef').disabled=s.running;
   if(s.last)$('#btnRef').title='Последнее обновление: '+new Date(s.last.at*1000).toLocaleString('ru-RU');
@@ -674,7 +720,7 @@ document.querySelectorAll('#sortSeg button').forEach(b=>b.onclick=()=>{const k=b
 ['#fCat','#fReg','#fQ','#fMin'].forEach(s=>$(s).addEventListener('input',render));
 $('#btnRef').onclick=async()=>{await api('/api/refresh',{});poll()};
 $('#btnSet').onclick=()=>$('#params').hidden?settings():closeParams();
-$('#btnHelp').onclick=async()=>{$('#params').hidden=true;const md=await (await fetch('/api/doc')).text();$('#detail').innerHTML=`<div class="card doc">${mdToHtml(md)}</div>`};
+$('#btnHelp').onclick=async()=>{$('#params').hidden=true;const md=await (await fetch(STATIC?'data/doc.md':'/api/doc')).text();$('#detail').innerHTML=`<div class="card doc">${mdToHtml(md)}</div>`};
 // мини-рендер markdown для справки (заголовки, списки, таблицы, жирный, код)
 function mdToHtml(md){
   const inl=t=>esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');
@@ -691,7 +737,7 @@ function mdToHtml(md){
   return h+(list?'</ul>':'')+(tbl?'</table>':'');
 }
 document.querySelectorAll('[data-ic]').forEach(el=>{const n=el.dataset.ic;if(el.tagName==='SPAN'&&!el.textContent)el.outerHTML=ic(n);else el.insertAdjacentHTML('afterbegin',ic(n))});
-(async()=>{Object.assign(S,await api('/api/settings'));await load();poll();setInterval(poll,3000);setInterval(()=>document.querySelectorAll('.left[data-end]').forEach(el=>{el.lastChild.textContent=' '+leftText(el.dataset.end);el.classList.toggle('urgent',new Date(el.dataset.end)-Date.now()<864e5)}),30000);setInterval(load,60000)})();
+(async()=>{Object.assign(S,await api('/api/settings'));await load();poll();setInterval(poll,STATIC?300000:3000);setInterval(()=>document.querySelectorAll('.left[data-end]').forEach(el=>{el.lastChild.textContent=' '+leftText(el.dataset.end);el.classList.toggle('urgent',new Date(el.dataset.end)-Date.now()<864e5)}),30000);setInterval(load,60000)})();
 </script>
 </body>
 </html>

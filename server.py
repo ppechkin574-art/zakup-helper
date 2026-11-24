@@ -245,6 +245,65 @@ def lot_flags(lot, ts, auto):
     }
 
 
+def api_get(full):
+    """GET /api/… → (код, тело, тип). Его же вызывает сборка сайта для GitHub Pages (build_static.py)."""
+    p = full.split("?")[0]
+    if p == "/api/status":
+        return (200, state | {"last": store.meta_get("last_refresh"), "supplier": sup_state | {
+            "catalog": store.meta_get("supplier_catalog"), "prices": store.meta_get("supplier_prices")}})
+    if p == "/api/lots":
+        now = utcnow().isoformat()
+        rows = store.q("SELECT * FROM lots")
+        out = [lot_summary(r) for r in rows]
+        out = [o for o in out if (o["end"] or "") >= now[:19] and o["west"] is not False]
+        out.sort(key=lambda o: o["end"] or "")
+        return (200, out)
+    if p.startswith("/api/match/"):
+        lid = int(p.rsplit("/", 1)[1])
+        r = store.q("SELECT * FROM lots WHERE id=?", (lid,))
+        if not r:
+            return (404, {"error": "нет такого лота"})
+        s = lot_summary(r[0])
+        ts = store.get_json("techspec", "lot_id", lid)[0] or {}
+        spec = (ts.get("spec") or {})
+        text = " ".join(filter(None, [s["announcement"], s["short"], spec.get("desc") or spec.get("raw")]))
+        return (200, supplier.match_lot(text, s["name"]))
+    if p.startswith("/api/supplier/search"):
+        from urllib.parse import parse_qs, urlparse
+        qv = (parse_qs(urlparse(full).query).get("q") or [""])[0]
+        return (200, supplier.search(qv))
+    if p.startswith("/api/supplier/similar"):
+        # другие варианты к позиции сметы: та же категория поставщика, сначала в наличии и дешевле
+        from urllib.parse import parse_qs, urlparse
+        art = int((parse_qs(urlparse(full).query).get("article") or ["0"])[0] or 0)
+        base = store.q("SELECT * FROM supplier_products WHERE article=?", (art,))
+        if not base:
+            return (200, [])
+        rows = store.q("SELECT * FROM supplier_products WHERE category=? AND article<>? "
+                       "ORDER BY quantity>0 DESC, COALESCE(NULLIF(final_price,0),price) LIMIT 400",
+                       (base[0]["category"], art))
+        out = []
+        for r in rows:  # только не хуже исходного по главным характеристикам (docs/ECONOMICS.md, 2.4)
+            ok, why = bom.not_worse(base[0], r)
+            if ok and supplier.cost_of(dict(r)):
+                out.append(supplier.row_out(r, why, 0))
+        return (200, out[:8])
+    if p.startswith("/api/lot/"):
+        lid = int(p.rsplit("/", 1)[1])
+        r = store.q("SELECT * FROM lots WHERE id=?", (lid,))
+        if not r:
+            return (404, {"error": "нет такого лота"})
+        s = lot_summary(r[0])
+        s["techspec"] = store.get_json("techspec", "lot_id", lid)[0]
+        s["history"] = [store.get_json("history", "enstru_code", c)[0] for c in s["enstru"]]
+        return (200, s)
+    if p == "/api/settings":
+        return (200, store.meta_get("settings", {}))
+    if p == "/api/doc":
+        return (200, (ROOT / "docs" / "AUTOPICK.md").read_bytes(), "text/markdown; charset=utf-8")
+    return (404, {"error": "not found"})
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -259,63 +318,9 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        p = self.path.split("?")[0]
-        if p in ("/", "/index.html"):
+        if self.path.split("?")[0] in ("/", "/index.html"):
             return self.send(200, (ROOT / "web" / "index.html").read_bytes(), "text/html; charset=utf-8")
-        if p == "/api/status":
-            return self.send(200, state | {"last": store.meta_get("last_refresh"), "supplier": sup_state | {
-                "catalog": store.meta_get("supplier_catalog"), "prices": store.meta_get("supplier_prices")}})
-        if p == "/api/lots":
-            now = utcnow().isoformat()
-            rows = store.q("SELECT * FROM lots")
-            out = [lot_summary(r) for r in rows]
-            out = [o for o in out if (o["end"] or "") >= now[:19] and o["west"] is not False]
-            out.sort(key=lambda o: o["end"] or "")
-            return self.send(200, out)
-        if p.startswith("/api/match/"):
-            lid = int(p.rsplit("/", 1)[1])
-            r = store.q("SELECT * FROM lots WHERE id=?", (lid,))
-            if not r:
-                return self.send(404, {"error": "нет такого лота"})
-            s = lot_summary(r[0])
-            ts = store.get_json("techspec", "lot_id", lid)[0] or {}
-            spec = (ts.get("spec") or {})
-            text = " ".join(filter(None, [s["announcement"], s["short"], spec.get("desc") or spec.get("raw")]))
-            return self.send(200, supplier.match_lot(text, s["name"]))
-        if p.startswith("/api/supplier/search"):
-            from urllib.parse import parse_qs, urlparse
-            qv = (parse_qs(urlparse(self.path).query).get("q") or [""])[0]
-            return self.send(200, supplier.search(qv))
-        if p.startswith("/api/supplier/similar"):
-            # другие варианты к позиции сметы: та же категория поставщика, сначала в наличии и дешевле
-            from urllib.parse import parse_qs, urlparse
-            art = int((parse_qs(urlparse(self.path).query).get("article") or ["0"])[0] or 0)
-            base = store.q("SELECT * FROM supplier_products WHERE article=?", (art,))
-            if not base:
-                return self.send(200, [])
-            rows = store.q("SELECT * FROM supplier_products WHERE category=? AND article<>? "
-                           "ORDER BY quantity>0 DESC, COALESCE(NULLIF(final_price,0),price) LIMIT 400",
-                           (base[0]["category"], art))
-            out = []
-            for r in rows:  # только не хуже исходного по главным характеристикам (docs/ECONOMICS.md, 2.4)
-                ok, why = bom.not_worse(base[0], r)
-                if ok and supplier.cost_of(dict(r)):
-                    out.append(supplier.row_out(r, why, 0))
-            return self.send(200, out[:8])
-        if p.startswith("/api/lot/"):
-            lid = int(p.rsplit("/", 1)[1])
-            r = store.q("SELECT * FROM lots WHERE id=?", (lid,))
-            if not r:
-                return self.send(404, {"error": "нет такого лота"})
-            s = lot_summary(r[0])
-            s["techspec"] = store.get_json("techspec", "lot_id", lid)[0]
-            s["history"] = [store.get_json("history", "enstru_code", c)[0] for c in s["enstru"]]
-            return self.send(200, s)
-        if p == "/api/settings":
-            return self.send(200, store.meta_get("settings", {}))
-        if p == "/api/doc":
-            return self.send(200, (ROOT / "docs" / "AUTOPICK.md").read_bytes(), "text/markdown; charset=utf-8")
-        self.send(404, {"error": "not found"})
+        self.send(*api_get(self.path))
 
     def do_POST(self):
         p = self.path
