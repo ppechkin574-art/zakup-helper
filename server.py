@@ -12,7 +12,7 @@ from pathlib import Path
 
 from zakup import autopick, bom, source, store, supplier
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8765
 ROOT = Path(__file__).resolve().parent
 REFRESH_EVERY = 30 * 60          # раз в полчаса перечитываем открытые лоты
 HISTORY_TTL = 7 * 24 * 3600      # историю цен обновляем раз в неделю
