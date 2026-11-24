@@ -196,8 +196,19 @@ def extract_models(text):
     return out
 
 
+_cats = {"t": 0, "v": {}}
+
+
+def categories():
+    """Дерево категорий с кэшем на минуту (row_out зовётся тысячи раз)."""
+    if time.time() - _cats["t"] > 60:
+        _cats["v"] = (store.meta_get("supplier_categories") or {}).get("cats") or {}
+        _cats["t"] = time.time()
+    return _cats["v"]
+
+
 def row_out(r, why, score):
-    cats = (store.meta_get("supplier_categories") or {}).get("cats") or {}
+    cats = categories()
     cname = (cats.get(str(r["category"])) or {}).get("NAME", "")
     return {"cost_src": cost_src(dict(r)), "category_name": cname,
             "is_camera": bool(re.search(r"камер", cname, re.I) or CAMERA_RE.search(r["name"] or "")),"article": r["article"], "name": r["name"], "brand": r["brand"], "category": r["category"],

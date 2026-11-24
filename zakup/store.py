@@ -18,6 +18,7 @@ def conn():
         first_seen REAL, updated REAL);
     CREATE TABLE IF NOT EXISTS techspec(lot_id INTEGER PRIMARY KEY, data TEXT, fetched REAL);
     CREATE TABLE IF NOT EXISTS history(enstru_code TEXT PRIMARY KEY, data TEXT, fetched REAL);
+    CREATE TABLE IF NOT EXISTS auto(lot_id INTEGER PRIMARY KEY, data TEXT, updated REAL);
     CREATE TABLE IF NOT EXISTS calc(lot_id INTEGER PRIMARY KEY, data TEXT, updated REAL);
     CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
     CREATE TABLE IF NOT EXISTS supplier_products(article INTEGER PRIMARY KEY, name TEXT, norm TEXT,

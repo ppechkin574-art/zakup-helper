@@ -37,6 +37,8 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--sel)} tr.row.on{background:
 .res>div{border-radius:10px;padding:10px;background:var(--bg)}
 .spec{white-space:pre-wrap;font-size:12.5px;max-height:260px;overflow:auto;background:var(--bg);padding:10px;border-radius:8px}
 a{color:var(--acc)}
+.doc h2{font-size:18px;margin:0 0 8px}.doc h3{font-size:15px;margin:18px 0 6px;text-transform:none;letter-spacing:0;color:var(--ink)}.doc h4{margin:14px 0 4px}
+.doc li{margin:3px 0}.doc code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12px}
 .bar{height:6px;border-radius:3px;background:var(--line);position:relative;margin-top:4px}
 .bar i{position:absolute;top:0;height:6px;border-radius:3px;background:var(--acc)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -53,6 +55,7 @@ a{color:var(--acc)}
   <label class="small"><input type="checkbox" id="fMin"> от 1 млн ₸</label>
   <span style="flex:1"></span>
   <span id="stat" class="small mut"></span>
+  <button id="btnHelp">Как считается</button>
   <button id="btnSet">Настройки</button>
   <button class="pri" id="btnRef">Обновить</button>
 </header>
@@ -84,6 +87,11 @@ function defaultCams(l,items){
   return /камер/i.test(l.name||'')?(l.qty||l.qty_api||0):0;
 }
 function defaultBid(l){const d=l.median_discount;return l.price*(1-(d!=null&&d>0?d:0.10))}
+// расчёт лота: ручной, если вы его меняли; иначе — из автоподбора (docs/AUTOPICK.md)
+function fromAuto(l){const a=l.auto;if(!a||!a.ok)return null;
+  return {items:(a.items||[]).map(x=>({...x})),...(a.cams?{cams:a.cams}:{}),_auto:true}}
+function effCalc(l){return l.calc||fromAuto(l)}
+const TIER={'точная модель':'точная','похожая модель':'похожая','аналог по типу':'аналог'};
 function compute(l,c){
   c=c||{};const bid=+c.bid||defaultBid(l);
   const qty=+c.qty||l.qty||l.qty_api||1;
@@ -119,7 +127,7 @@ function render(){
   const cat=$('#fCat').value,reg=$('#fReg').value,q=$('#fQ').value.toLowerCase(),min=$('#fMin').checked;
   let L=LOTS.filter(l=>(cat?l.category===cat:l.category!=='шум')&&(!reg||l.region.includes(reg))&&(!min||l.price>=1e6)
     &&(!q||(l.name+' '+l.announcement+' '+l.customer+' '+l.short).toLowerCase().includes(q)));
-  L.forEach(l=>l._r=compute(l,l.calc));
+  L.forEach(l=>{const c=effCalc(l);l._r=compute(l,c);l._f=compute(l,{...(c||{}),bid:l.price})});
   L.sort((a,b)=>{const g=x=>sortK==='verdict'?({good:3,warn:2,bad:1}[x._r.verdict]||0):x[sortK]??'';const A=g(a),B=g(b);return (A>B?1:A<B?-1:0)*sortDir});
   const fresh=Date.now()/1000-86400;
   $('#tb').innerHTML=L.map(l=>`<tr class="row ${CUR&&CUR.id===l.id?'on':''}" data-id="${l.id}">
@@ -129,7 +137,11 @@ function render(){
       <div class="small mut">${esc((l.customer||'').slice(0,90))}</div></td>
     <td class="small">${esc(l.region.replace(/область/,'обл.'))}</td>
     <td class="num">${fmt(l.price)}${l.qty?`<div class="small mut">${l.qty} ${esc(l.unit||'')}</div>`:''}</td>
-    <td>${l._r.verdict?`<span class="tag v-${l._r.verdict}">${VLAB[l._r.verdict]} ${pct(l._r.margin)}</span>`:'<span class="small mut">нет цены</span>'}</td></tr>`).join('');
+    <td>${l._r.verdict?`<span class="tag v-${l._r.verdict}">${VLAB[l._r.verdict]} ${pct(l._r.margin)}</span>
+      <div class="small mut" style="margin-top:3px">${fmt(l._r.net)} ₸ при скидке ${pct(1-l._r.bid/l.price)}</div>
+      <div class="small mut">без скидки: ${fmt(l._f.net)} ₸ (${pct(l._f.margin)})</div>
+      <div class="small mut">${l.calc?'ручной расчёт':`авто · ${TIER[l.auto.tier]||''}${l.auto.rough?' · грубая':''}`}</div>`
+      :`<span class="small mut" title="${esc((l.auto||{}).reason||'')}">нет оценки${l.auto&&l.auto.reason?': '+esc(l.auto.reason.slice(0,60)):''}</span>`}</td></tr>`).join('');
   $('#stat').textContent=`${L.length} лотов на ${fmt(L.reduce((s,l)=>s+l.price,0))} ₸`;
 }
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -137,7 +149,14 @@ function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt
 // ---------- карточка лота ----------
 async function open(id){
   const l=await api('/api/lot/'+id);CUR=l;render();
-  const c=Object.assign({qty:l.qty||l.qty_api||1,supVat:true},l.calc||{});ITEMS=(c.items||[]).map(x=>({...x}));
+  const c=Object.assign({qty:l.qty||l.qty_api||1,supVat:true},effCalc(l)||{});ITEMS=(c.items||[]).map(x=>({...x}));
+  const a=l.auto||{};
+  const autoBox=l.calc?`<div class="small" style="margin-bottom:10px">Ручной расчёт. <button id="btnReset">Вернуть автоподбор</button></div>`
+    :a.ok?`<div class="small" style="margin-bottom:10px;padding:8px 10px;border-radius:8px;background:var(--bg)">
+      <b>Автоподбор:</b> ${esc(a.tier)}${a.rough?' · <span style="color:var(--warn)">грубая оценка</span>':''}
+      ${(a.notes||[]).map(n=>`<div class="mut">• ${esc(n)}</div>`).join('')}
+      <div class="mut">Любая правка ниже превращает расчёт в ручной — автоподбор его больше не трогает.</div></div>`
+    :`<div class="small mut" style="margin-bottom:10px">Автоподбор не оценил лот: ${esc(a.reason||'ещё не запускался')}</div>`;
   const sp=(l.techspec||{}).spec||{};const files=(l.techspec||{}).files||[];
   const h=(l.history||[]).filter(Boolean)[0];
   $('#detail').innerHTML=`
@@ -158,7 +177,7 @@ async function open(id){
       ${files.map(f=>` · <a href="${f.url}" target="_blank">${esc(f.group)}</a>`).join('')}</div>
   </div>
 
-  <div class="card"><h3>Расчёт рентабельности</h3>
+  <div class="card"><h3>Расчёт рентабельности</h3>${autoBox}
     <div class="grid2">
       <span>Количество, ${esc(sp.unit||'ед.')}</span><input type="number" id="c_qty" value="${c.qty}">
       <span>Закупка за ед., ₸ <span class="small mut">(если не выбраны позиции ниже)</span></span><input type="number" id="c_unitCost" value="${c.unitCost||''}" placeholder="0">
@@ -184,6 +203,7 @@ async function open(id){
   <div class="card"><h3>Техническая спецификация</h3>${sp.desc?`<div class="spec">${esc(sp.desc)}</div>`:sp.error?`<span class="mut">Не удалось прочитать: ${esc(sp.error)}</span>`:'<span class="mut">Ещё загружается или нет файла.</span>'}</div>`;
   ['qty','cams','unitCost','materials','labor','logistics','otherCost','bid','supVat'].forEach(k=>$('#c_'+k).addEventListener('input',recalc));
   recalc(true);renderItems();
+  if($('#btnReset'))$('#btnReset').onclick=async()=>{await api('/api/calc/'+id,{reset:true});const L=LOTS.find(x=>x.id===id);if(L)L.calc=null;open(id)};
   $('#supGo').onclick=()=>supSearch($('#supQ').value);$('#supQ').onkeydown=e=>{if(e.key==='Enter')supSearch($('#supQ').value)};
   const m=await api('/api/match/'+id);if(CUR.id!==id)return;
   supRender(m.candidates,m.models.length?`Модели в техспеке: ${m.models.slice(0,8).join(', ')}`:'Модель в техспеке не указана — подобраны дешёвые в наличии по типу товара.');
@@ -210,7 +230,7 @@ let ITEMS=[];
 function readCalc(){const c={items:ITEMS};['qty','cams','unitCost','materials','labor','logistics','otherCost','bid'].forEach(k=>{const v=$('#c_'+k).value;if(v!=='')c[k]=+v});c.supVat=$('#c_supVat').checked;return c}
 let saveT;
 function recalc(first){
-  const c=readCalc(),r=compute(CUR,c);
+  const c=readCalc(),r=compute(CUR,c),f=compute(CUR,{...c,bid:CUR.price});
   const cls=r.verdict?'v-'+r.verdict:'';
   $('#res').innerHTML=`<div class="res">
     <div class="${cls}"><div class="small">Чистая прибыль</div><div class="big">${fmt(r.net)} ₸</div><div class="small">${r.verdict?VLAB[r.verdict]:'введите себестоимость'}</div></div>
@@ -218,6 +238,7 @@ function recalc(first){
     <div><div class="small mut">Мин. цена при цели</div><div class="big">${fmt(r.minBid)}</div><div class="small mut">${r.minBid>CUR.price?'выше суммы лота — не выйдет':'скидка до '+pct(1-r.minBid/CUR.price)}</div></div>
   </div>
   <div class="kv small" style="margin-top:10px">
+    <span class="mut">Без скидки</span><span>если выиграть по полной сумме ${fmt(CUR.price)} ₸: прибыль <b>${fmt(f.net)} ₸</b> (${pct(f.margin)})</span>
     <span class="mut">Режим</span><span>${S.tax==='our'?`НДС ${pct(S.vat)} + КПН ${pct(S.kpn)}`:`упрощёнка ${pct(S.simple)} с оборота`}</span>
     <span class="mut">Выручка без НДС</span><span>${fmt(r.revNet)} ₸</span>
     <span class="mut">Расходы без НДС</span><span>${fmt(r.costNet)} ₸ (оборудование ${fmt(r.equip)}, логистика ${fmt(r.logi)}, монтаж ${fmt(r.labor)}${r.cams?` за ${r.cams} кам.`:''}, прочее ${fmt(r.other-r.labor)})</span>
@@ -225,7 +246,7 @@ function recalc(first){
     <span class="mut">Нужно денег на старте</span><span>${fmt(r.needCash)} ₸ <span class="mut">(закупка + обеспечения заявки ${pct(S.bidSec)} и договора ${pct(S.perfSec)})</span></span>
     ${CUR.dumping_price&&r.bid<CUR.dumping_price?`<span style="color:var(--bad)">Внимание</span><span style="color:var(--bad)">цена ниже порога демпинга ${fmt(CUR.dumping_price)} ₸</span>`:''}
   </div>`;
-  if(first!==true){clearTimeout(saveT);saveT=setTimeout(async()=>{await api('/api/calc/'+CUR.id,c);const L=LOTS.find(x=>x.id===CUR.id);if(L)L.calc=c;render()},500)}
+  if(first!==true){clearTimeout(saveT);saveT=setTimeout(async()=>{await api('/api/calc/'+CUR.id,c);const L=LOTS.find(x=>x.id===CUR.id);if(L)L.calc=c;render();const b=$('#detail .card:nth-child(2) > div.small');if(b&&!$('#btnReset')){b.outerHTML=`<div class="small" style="margin-bottom:10px">Ручной расчёт. <button id="btnReset">Вернуть автоподбор</button></div>`;$('#btnReset').onclick=async()=>{await api('/api/calc/'+CUR.id,{reset:true});if(L)L.calc=null;open(CUR.id)}}},500)}
 }
 function histHtml(h,l){
   if(!h)return '<span class="mut">Ещё собирается…</span>';
@@ -278,6 +299,22 @@ document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{const k=th.d
 ['#fCat','#fReg','#fQ','#fMin'].forEach(s=>$(s).addEventListener('input',render));
 $('#btnRef').onclick=async()=>{await api('/api/refresh',{});poll()};
 $('#btnSet').onclick=settings;
+$('#btnHelp').onclick=async()=>{const md=await (await fetch('/api/doc')).text();$('#detail').innerHTML=`<div class="card doc">${mdToHtml(md)}</div>`};
+// мини-рендер markdown для справки (заголовки, списки, таблицы, жирный, код)
+function mdToHtml(md){
+  const inl=t=>esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');
+  let h='',list=false,tbl=false;
+  for(const ln of md.split('\n')){
+    if(/^\|/.test(ln)){if(/^\|[\s:-]+\|/.test(ln.replace(/[^|:\s-]/g,'x'))&&/^[|\s:-]+$/.test(ln))continue;
+      const cells=ln.split('|').slice(1,-1).map(x=>inl(x.trim()));h+=(tbl?'':'<table class="small">')+'<tr>'+cells.map(c=>`<td>${c}</td>`).join('')+'</tr>';tbl=true;continue}
+    if(tbl){h+='</table>';tbl=false}
+    if(/^\s*[-*] /.test(ln)){h+=(list?'':'<ul>')+'<li>'+inl(ln.replace(/^\s*[-*] /,''))+'</li>';list=true;continue}
+    if(list){h+='</ul>';list=false}
+    const m=ln.match(/^(#{1,3}) (.*)/);
+    if(m)h+=`<h${m[1].length+1}>${inl(m[2])}</h${m[1].length+1}>`;else if(ln.trim())h+=`<p>${inl(ln)}</p>`;
+  }
+  return h+(list?'</ul>':'')+(tbl?'</table>':'');
+}
 (async()=>{Object.assign(S,await api('/api/settings'));await load();poll();setInterval(poll,3000);setInterval(load,60000)})();
 </script>
 </body>

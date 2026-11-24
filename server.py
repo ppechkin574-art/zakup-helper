@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-from zakup import source, store, supplier
+from zakup import autopick, source, store, supplier
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
 ROOT = Path(__file__).resolve().parent
@@ -68,6 +68,8 @@ def refresh():
                 store.put_json("history", "enstru_code", code, source.price_history(code, since))
             except Exception as e:
                 print("history", code, e)
+        state["stage"] = "автоподбор"
+        run_autopick()
         state["stage"] = "готово"
     except Exception as e:
         traceback.print_exc()
@@ -93,11 +95,33 @@ def supplier_loop():
                 supplier.sync_prices(prog)
             if age("supplier_categories") > 7 * 24 * 3600:
                 supplier.sync_categories(prog)
-            sup_state.update(stage="", error=None)
+            sup_state.update(stage="автоподбор", error=None)
+            if not state["running"]:
+                run_autopick()
+            sup_state.update(stage="")
         except Exception as e:
             traceback.print_exc()
             sup_state.update(error=str(e))
         time.sleep(300)
+
+
+def run_autopick():
+    """Черновой расчёт по всем открытым лотам (правила — docs/AUTOPICK.md)."""
+    now = utcnow().isoformat()[:19]
+    n = 0
+    for row in store.q("SELECT * FROM lots"):
+        s = lot_summary(row)
+        if (s["end"] or "") < now:
+            continue
+        spec = (store.get_json("techspec", "lot_id", s["id"])[0] or {}).get("spec") or {}
+        try:
+            res = autopick.autopick(s, spec)
+        except Exception as e:
+            traceback.print_exc()
+            res = {"ok": False, "reason": f"ошибка автоподбора: {e}"}
+        store.put_json("auto", "lot_id", s["id"], res)
+        n += 1
+    store.meta_set("autopick", {"at": time.time(), "lots": n})
 
 
 def loop():
@@ -111,6 +135,7 @@ def lot_summary(row):
     ts, _ = store.get_json("techspec", "lot_id", lot["id"])
     spec = (ts or {}).get("spec") or {}
     calc, _ = store.get_json("calc", "lot_id", lot["id"])
+    auto, _ = store.get_json("auto", "lot_id", lot["id"])
     codes = [e["code"] for e in lot.get("enstrus") or []]
     hist = store.get_json("history", "enstru_code", codes[0])[0] if codes else None
     return {
@@ -132,6 +157,7 @@ def lot_summary(row):
         "install": row["category"] in ("монтаж", "ремонт") or bool(
             re.search(r"установк|монтаж", (spec.get("desc") or "") + " " + (lot.get("announcement_name_ru") or ""), re.I)),
         "calc": calc,
+        "auto": auto,
     }
 
 
@@ -191,6 +217,8 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, s)
         if p == "/api/settings":
             return self.send(200, store.meta_get("settings", {}))
+        if p == "/api/doc":
+            return self.send(200, (ROOT / "docs" / "AUTOPICK.md").read_bytes(), "text/markdown; charset=utf-8")
         self.send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -200,7 +228,14 @@ class H(BaseHTTPRequestHandler):
             threading.Thread(target=refresh, daemon=True).start()
             return self.send(200, {"ok": True})
         if p.startswith("/api/calc/"):
-            store.put_json("calc", "lot_id", int(p.rsplit("/", 1)[1]), body)
+            lid = int(p.rsplit("/", 1)[1])
+            if body.get("reset"):  # вернуть лот к автоподбору
+                store.x("DELETE FROM calc WHERE lot_id=?", (lid,))
+            else:
+                store.put_json("calc", "lot_id", lid, body)
+            return self.send(200, {"ok": True})
+        if p == "/api/autopick":
+            threading.Thread(target=run_autopick, daemon=True).start()
             return self.send(200, {"ok": True})
         if p == "/api/settings":
             store.meta_set("settings", body)
