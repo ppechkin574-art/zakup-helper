@@ -80,7 +80,8 @@ function defaultBid(l){const d=l.median_discount;return l.price*(1-(d!=null&&d>0
 function compute(l,c){
   c=c||{};const bid=+c.bid||defaultBid(l);
   const qty=+c.qty||l.qty||l.qty_api||1;
-  const equip=(+c.unitCost||0)*qty;               // закупка оборудования (с НДС поставщика)
+  const items=c.items||[];
+  const equip=items.length?items.reduce((a,i)=>a+(+i.cost||0)*(+i.qty||0),0):(+c.unitCost||0)*qty; // закупка (с НДС поставщика)
   const other=(+c.materials||0)+(+c.labor||0)+(+c.otherCost||0);
   const logi=c.logistics!=null&&c.logistics!==''?+c.logistics:equip*S.logistics;
   const supVat=c.supVat!==false;
@@ -127,7 +128,7 @@ function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt
 // ---------- карточка лота ----------
 async function open(id){
   const l=await api('/api/lot/'+id);CUR=l;render();
-  const c=Object.assign({qty:l.qty||l.qty_api||1,supVat:true},l.calc||{});
+  const c=Object.assign({qty:l.qty||l.qty_api||1,supVat:true},l.calc||{});ITEMS=(c.items||[]).map(x=>({...x}));
   const sp=(l.techspec||{}).spec||{};const files=(l.techspec||{}).files||[];
   const h=(l.history||[]).filter(Boolean)[0];
   $('#detail').innerHTML=`
@@ -151,7 +152,7 @@ async function open(id){
   <div class="card"><h3>Расчёт рентабельности</h3>
     <div class="grid2">
       <span>Количество, ${esc(sp.unit||'ед.')}</span><input type="number" id="c_qty" value="${c.qty}">
-      <span>Закупка у поставщика за ед., ₸ <span class="small mut">(API поставщика — после подключения)</span></span><input type="number" id="c_unitCost" value="${c.unitCost||''}" placeholder="0">
+      <span>Закупка за ед., ₸ <span class="small mut">(если не выбраны позиции ниже)</span></span><input type="number" id="c_unitCost" value="${c.unitCost||''}" placeholder="0">
       <span class="small"><label><input type="checkbox" id="c_supVat" ${c.supVat!==false?'checked':''}> поставщик с НДС</label></span><span></span>
       <span>Материалы (кабель, крепёж…), ₸</span><input type="number" id="c_materials" value="${c.materials||''}" placeholder="0">
       <span>Работы / монтаж, ₸</span><input type="number" id="c_labor" value="${c.labor||''}" placeholder="0">
@@ -159,16 +160,44 @@ async function open(id){
       <span>Прочее (командировки, проект), ₸</span><input type="number" id="c_otherCost" value="${c.otherCost||''}" placeholder="0">
       <span><b>Наша цена в заявке, ₸</b><div class="small mut">по умолчанию: сумма лота − типичная скидка победителей</div></span><input type="number" id="c_bid" value="${Math.round(c.bid||defaultBid(l))}">
     </div>
+    <div id="items"></div>
     <div id="res"></div>
+  </div>
+
+  <div class="card"><h3>Подбор у поставщика · keeper.kz</h3>
+    <div style="display:flex;gap:8px;margin-bottom:8px"><input id="supQ" placeholder="Модель или бренд, напр. DS-2CD1043" style="flex:1"><button id="supGo">Найти</button></div>
+    <div id="sup" class="small mut">Подбираю…</div>
   </div>
 
   <div class="card"><h3>Как такие лоты выигрывают (договоры за 6 мес.)</h3>${histHtml(h,l)}</div>
 
   <div class="card"><h3>Техническая спецификация</h3>${sp.desc?`<div class="spec">${esc(sp.desc)}</div>`:sp.error?`<span class="mut">Не удалось прочитать: ${esc(sp.error)}</span>`:'<span class="mut">Ещё загружается или нет файла.</span>'}</div>`;
   ['qty','unitCost','materials','labor','logistics','otherCost','bid','supVat'].forEach(k=>$('#c_'+k).addEventListener('input',recalc));
-  recalc(true);
+  recalc(true);renderItems();
+  $('#supGo').onclick=()=>supSearch($('#supQ').value);$('#supQ').onkeydown=e=>{if(e.key==='Enter')supSearch($('#supQ').value)};
+  const m=await api('/api/match/'+id);if(CUR.id!==id)return;
+  supRender(m.candidates,m.models.length?`Модели в техспеке: ${m.models.slice(0,8).join(', ')}`:'Модель в техспеке не указана — подобраны дешёвые в наличии по типу товара.');
 }
-function readCalc(){const c={};['qty','unitCost','materials','labor','logistics','otherCost','bid'].forEach(k=>{const v=$('#c_'+k).value;if(v!=='')c[k]=+v});c.supVat=$('#c_supVat').checked;return c}
+let SUP=[];
+function supRender(list,note){SUP=list;const need=+$('#c_qty').value||1;
+  $('#sup').innerHTML=(note?`<div class="mut" style="margin-bottom:6px">${esc(note)}</div>`:'')+(list.length?`<table class="small"><tr><th></th><th>Товар</th><th class="num">Цена</th><th class="num">Остаток</th><th></th></tr>${list.map((p,i)=>`<tr>
+    <td>${p.image?`<img src="${p.image}" style="width:36px;height:36px;object-fit:contain;border-radius:6px;background:#fff">`:''}</td>
+    <td><b>${esc(p.name)}</b><div class="mut">${esc(p.brand||'')} · арт. ${p.article} · ${esc(p.why)}</div></td>
+    <td class="num">${fmt(p.cost)}${p.price&&p.cost!==p.price?`<div class="mut">розн. ${fmt(p.price)}</div>`:''}</td>
+    <td class="num" style="color:${p.quantity>=need?'var(--good)':p.quantity>0?'var(--warn)':'var(--bad)'}">${p.quantity}</td>
+    <td><button data-i="${i}">+ в расчёт</button></td></tr>`).join('')}</table>`:'<span class="mut">Ничего не найдено. Попробуйте поиск по модели.</span>');
+  $('#sup').querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{const p=SUP[+b.dataset.i];ITEMS.push({article:p.article,name:p.name,cost:p.cost,qty:+$('#c_qty').value||1,stock:p.quantity});renderItems();recalc()});
+}
+async function supSearch(q){if(!q.trim())return;$('#sup').textContent='Ищу…';supRender(await api('/api/supplier/search?q='+encodeURIComponent(q)),'')}
+function renderItems(){
+  $('#items').innerHTML=ITEMS.length?`<table class="small" style="margin-top:10px"><tr><th>Позиция поставщика</th><th class="num">Цена</th><th class="num" style="width:70px">Кол-во</th><th class="num">Сумма</th><th></th></tr>
+  ${ITEMS.map((x,i)=>`<tr><td>${esc(x.name)}${x.stock!=null&&x.stock<x.qty?` <span class="tag v-bad">на складе ${x.stock}</span>`:''}</td><td class="num">${fmt(x.cost)}</td>
+  <td><input type="number" data-q="${i}" value="${x.qty}"></td><td class="num">${fmt(x.cost*x.qty)}</td><td><button data-d="${i}">✕</button></td></tr>`).join('')}</table>`:'';
+  $('#items').querySelectorAll('input[data-q]').forEach(el=>el.oninput=()=>{ITEMS[+el.dataset.q].qty=+el.value;recalc();});
+  $('#items').querySelectorAll('button[data-d]').forEach(b=>b.onclick=()=>{ITEMS.splice(+b.dataset.d,1);renderItems();recalc()});
+}
+let ITEMS=[];
+function readCalc(){const c={items:ITEMS};['qty','unitCost','materials','labor','logistics','otherCost','bid'].forEach(k=>{const v=$('#c_'+k).value;if(v!=='')c[k]=+v});c.supVat=$('#c_supVat').checked;return c}
 let saveT;
 function recalc(first){
   const c=readCalc(),r=compute(CUR,c);

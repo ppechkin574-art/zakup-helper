@@ -84,24 +84,46 @@ def sync_catalog(progress=lambda s: None):
     return len(items)
 
 
+# Ветки каталога, нужные для видеонаблюдения «под ключ»
+RELEVANT_TOP = {1536, 1631, 1576, 1586, 1529, 1721, 1558, 1589, 1783}
+
+
 def sync_categories(progress=lambda s: None):
-    """Дерево категорий: верхний уровень + подкатегории (лимит 60 с — делаем редко)."""
+    """Дерево категорий. API отдаёт только прямых детей и не чаще 1 раза в минуту,
+    поэтому обходим лишь узлы с потомками (right-left>1) в нужных ветках."""
+    prev = (store.meta_get("supplier_categories") or {}).get("cats") or {}
     cats = {}
-    top = call("categories", {"per_page": 200, "offset": 0}, min_gap=61)
-    for c in top:
-        cats[int(c["ID"])] = c
-    store.meta_set("supplier_categories", {"at": time.time(), "cats": cats})
-    used = {r["category"] for r in store.q("SELECT DISTINCT category FROM supplier_products")}
-    missing = [c for c in used if c and c not in cats]
-    for i, c in enumerate(missing, 1):
-        progress(f"поставщик: категории {i}/{len(missing)} (1 в минуту)")
+    for c in call("categories", {"per_page": 200, "offset": 0}, min_gap=61):
+        cats[str(c["ID"])] = c
+    queue = [cid for cid in cats if int(cid) in RELEVANT_TOP]
+    done = 0
+    while queue:
+        cid = queue.pop(0)
+        progress(f"поставщик: категории, обход {done + 1} (ещё {len(queue)}; 1 запрос в минуту)")
         try:
-            for sub in call("categories", {"id": c, "per_page": 200, "offset": 0}, min_gap=61) or []:
-                cats[int(sub["ID"])] = sub
+            kids = call("categories", {"id": cid, "per_page": 200, "offset": 0}, min_gap=61) or []
         except Exception as e:
-            print("cat", c, e)
-        store.meta_set("supplier_categories", {"at": time.time(), "cats": cats})
+            print("cat", cid, e)
+            kids = []
+        for k in kids:
+            k["parent"] = cid
+            cats[str(k["ID"])] = k
+            if int(k["right"]) - int(k["left"]) > 1:
+                queue.append(str(k["ID"]))
+        done += 1
+        store.meta_set("supplier_categories", {"at": (store.meta_get("supplier_categories") or {}).get("at", 0),
+                                               "cats": {**prev, **cats}, "partial": True})
+    store.meta_set("supplier_categories", {"at": time.time(), "cats": cats})
     return len(cats)
+
+
+def descendants(cats, cid):
+    """Все категории внутри cid (nested sets: left/right)."""
+    c = cats.get(str(cid))
+    if not c:
+        return {int(cid)}
+    l, r = int(c["left"]), int(c["right"])
+    return {int(k) for k, v in cats.items() if l <= int(v["left"]) and int(v["right"]) <= r}
 
 
 def sync_prices(progress=lambda s: None):
@@ -143,13 +165,22 @@ NOT_MODEL = re.compile(r"^(IEEE|RJ|H\.?26|DC|AC|PoE|IP\d|WDR|USB|HDMI|VGA|SATA|O
 
 
 def extract_models(text):
-    out = []
+    """Модели из текста: [(норма, [варианты от полного к укороченному])]."""
+    out, seen = [], set()
     for m in MODEL_RE.findall(text or ""):
         if NOT_MODEL.match(m) or not re.search(r"\d", m) or not re.search(r"[A-Za-z]", m):
             continue
         n = norm(m)
-        if len(n) >= 6 and n not in out:
-            out.append(n)
+        if len(n) < 6 or n in seen:
+            continue
+        seen.add(n)
+        parts = re.split(r"[-‐–/]", m)
+        variants = [n]
+        for k in range(len(parts) - 1, 1, -1):  # отрезаем суффиксы, оставляя минимум 2 сегмента
+            v = norm("".join(parts[:k]))
+            if len(v) >= 6 and v not in variants:
+                variants.append(v)
+        out.append((n, variants))
     return out
 
 
@@ -171,15 +202,24 @@ def match_lot(spec_text, lot_name, limit=12):
     """Кандидаты из каталога: сначала точное совпадение модели, затем по типу из категорий."""
     text = f"{lot_name or ''}\n{spec_text or ''}"
     cands, seen = [], set()
-    models = extract_models(text)
-    for m in models[:30]:
-        if len(m) < 6:
-            continue
-        rows = store.q("SELECT * FROM supplier_products WHERE norm=? OR norm LIKE ? LIMIT 5", (m, m + "%"))
-        for r in rows:
-            if r["article"] not in seen:
+    found = extract_models(text)
+    models = [m for m, _ in found]
+    for m, variants in found[:30]:
+        for depth, v in enumerate(variants):
+            rows = store.q("SELECT * FROM supplier_products WHERE norm LIKE ? "
+                           "ORDER BY quantity>0 DESC, LENGTH(norm) LIMIT 6", (f"%{v}%",))
+            hit = False
+            for r in rows:
+                if r["article"] in seen:
+                    continue
                 seen.add(r["article"])
-                cands.append(row_out(r, f"модель {m}", 100 if r["norm"] == m else 90))
+                hit = True
+                exact = r["norm"] == m or r["norm"].endswith(m)
+                cands.append(row_out(r, f"модель {m}" + ("" if depth == 0 else " (похожая)"),
+                                     100 if exact else 90 - depth * 10))
+            if hit:
+                break
+    cands.sort(key=lambda c: (-c["score"], -(c["quantity"] > 0), c["cost"] or 1e18))
     if len(cands) < limit:
         cats = (store.meta_get("supplier_categories") or {}).get("cats") or {}
         low = text.lower()
@@ -188,10 +228,13 @@ def match_lot(spec_text, lot_name, limit=12):
             want = ["камер"]
         if not want and re.search(r"регистратор", low):
             want = ["регистратор"]
-        ids = [int(k) for k, c in cats.items() if any(w in (c.get("NAME") or "").lower() for w in want)]
+        ids = set()
+        for k, c in cats.items():
+            if any(w in (c.get("NAME") or "").lower() for w in want):
+                ids |= descendants(cats, k)
+        ids = list(ids)
         if ids:
             ip = "ip" in low or "сетев" in low
-            mp = re.search(r"(\d{1,2})\s*(?:mp|мп|мегапиксел)", low)
             rows = store.q(f"SELECT * FROM supplier_products WHERE category IN ({','.join('?'*len(ids))}) "
                            "AND quantity>0 ORDER BY COALESCE(NULLIF(final_price,0),price) LIMIT 300", ids)
             scored = []
@@ -202,8 +245,6 @@ def match_lot(spec_text, lot_name, limit=12):
                 s = 50
                 if ip and "ip" in cname.lower():
                     s += 10
-                if mp and re.search(rf"(?<!\d){mp.group(1)}\d?(?:MP|M\b)|{mp.group(1)}(?:2|4)?1?\d?", r["name"]):
-                    s += 0  # в названии модели мегапиксели не всегда читаются — не штрафуем
                 scored.append(row_out(r, f"категория «{cname}»", s))
             scored.sort(key=lambda x: (-x["score"], x["cost"] or 1e18))
             cands += scored[: limit - len(cands)]

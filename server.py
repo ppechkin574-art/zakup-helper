@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-from zakup import source, store
+from zakup import source, store, supplier
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
 ROOT = Path(__file__).resolve().parent
@@ -75,6 +75,30 @@ def refresh():
         state["running"] = False
 
 
+sup_state = {"stage": "", "error": None}
+
+
+def supplier_loop():
+    """Каталог — раз в сутки, остатки/цены — раз в час, категории — раз в неделю."""
+    def age(k):
+        m = store.meta_get(k)
+        return time.time() - m["at"] if m else 1e12
+    prog = lambda s: sup_state.update(stage=s)
+    while True:
+        try:
+            if age("supplier_catalog") > 24 * 3600:
+                supplier.sync_catalog(prog)
+            elif age("supplier_prices") > 3600:
+                supplier.sync_prices(prog)
+            if age("supplier_categories") > 7 * 24 * 3600:
+                supplier.sync_categories(prog)
+            sup_state.update(stage="", error=None)
+        except Exception as e:
+            traceback.print_exc()
+            sup_state.update(error=str(e))
+        time.sleep(300)
+
+
 def loop():
     while True:
         refresh()
@@ -125,7 +149,8 @@ class H(BaseHTTPRequestHandler):
         if p in ("/", "/index.html"):
             return self.send(200, (ROOT / "web" / "index.html").read_bytes(), "text/html; charset=utf-8")
         if p == "/api/status":
-            return self.send(200, state | {"last": store.meta_get("last_refresh")})
+            return self.send(200, state | {"last": store.meta_get("last_refresh"), "supplier": sup_state | {
+                "catalog": store.meta_get("supplier_catalog"), "prices": store.meta_get("supplier_prices")}})
         if p == "/api/lots":
             now = utcnow().isoformat()
             rows = store.q("SELECT * FROM lots")
@@ -133,6 +158,24 @@ class H(BaseHTTPRequestHandler):
             out = [o for o in out if (o["end"] or "") >= now[:19]]
             out.sort(key=lambda o: o["end"] or "")
             return self.send(200, out)
+        if p.startswith("/api/match/"):
+            lid = int(p.rsplit("/", 1)[1])
+            r = store.q("SELECT * FROM lots WHERE id=?", (lid,))
+            if not r:
+                return self.send(404, {"error": "нет такого лота"})
+            s = lot_summary(r[0])
+            ts = store.get_json("techspec", "lot_id", lid)[0] or {}
+            spec = (ts.get("spec") or {})
+            text = " ".join(filter(None, [s["announcement"], s["short"], spec.get("desc") or spec.get("raw")]))
+            return self.send(200, supplier.match_lot(text, s["name"]))
+        if p.startswith("/api/supplier/search"):
+            from urllib.parse import parse_qs, urlparse
+            qv = (parse_qs(urlparse(self.path).query).get("q") or [""])[0]
+            n = supplier.norm(qv)
+            rows = store.q("SELECT * FROM supplier_products WHERE norm LIKE ? OR UPPER(brand) LIKE ? "
+                           "ORDER BY quantity>0 DESC, COALESCE(NULLIF(final_price,0),price) LIMIT 30",
+                           (f"%{n}%", f"%{qv.upper()}%"))
+            return self.send(200, [supplier.row_out(r, "поиск", 0) for r in rows])
         if p.startswith("/api/lot/"):
             lid = int(p.rsplit("/", 1)[1])
             r = store.q("SELECT * FROM lots WHERE id=?", (lid,))
@@ -163,5 +206,6 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     threading.Thread(target=loop, daemon=True).start()
+    threading.Thread(target=supplier_loop, daemon=True).start()
     print(f"Помощник по госзакупкам: http://localhost:{PORT}")
     ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
