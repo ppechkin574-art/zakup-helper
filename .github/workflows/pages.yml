@@ -25,6 +25,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Есть ли ключ keeper.kz
+        env:
+          KEEPER_TOKEN: ${{ secrets.KEEPER_TOKEN }}
+        run: |
+          if [ -z "$KEEPER_TOKEN" ]; then
+            echo "::error::Нет секрета KEEPER_TOKEN: Settings → Secrets and variables → Actions → New repository secret (docs/DEPLOY.md)"
+            exit 1
+          fi
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
