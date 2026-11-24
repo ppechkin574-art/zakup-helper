@@ -15,8 +15,10 @@ from . import store, supplier
 
 # ---------- требования лота ----------
 
+HANDHELD = re.compile(r"фотосъ[её]м|видеосъ[её]мк|аккумулятор|карт\w* памяти|стабилизац|экшн|оптическ\w* (?:зум|увелич)|видоискател", re.I)
+
 TYPE_RULES = [  # (тип, regex в тексте лота)
-    ("портатив", r"портатив|нагрудн|носим"),
+    ("портатив", r"(?:портатив|нагрудн|носим)\w*\s+(?:видео)?регистратор|(?:видео)?регистратор\w*\s+(?:портатив|нагрудн|носим)"),
     ("авто", r"автомобил"),
     ("веб", r"\bweb|веб-?камер"),
     ("ptz", r"\bptz\b|поворотн|скоростн[а-я]* купол|360°"),
@@ -34,6 +36,13 @@ CAT_RULES = {
 }
 
 
+# спецкатегории — не берём как аналог обычной камеры/регистратора
+SPECIAL_CAT = re.compile(r"wi-?fi|тепловиз|взрыв|кран|парков|дорожн|мобильн|автоном|портатив|встраив|панорам|модул|комплект", re.I)
+
+
+CONSUMER = re.compile(r"imou|ezviz|wi-?fi|tp-link tapo|xiaomi", re.I)
+
+
 def lot_requirements(text, works=False):
     low = (text or "").lower()
     kind = None
@@ -45,17 +54,47 @@ def lot_requirements(text, works=False):
         m = re.search(rx, low)
         if m:
             hits.append((m.start(), t))
-    if hits:
+    special = [t for _, t in hits if t in ("авто", "веб", "портатив")]
+    if special:  # особый товар важнее порядка слов: «Видеорегистратор … автомобильный»
+        kind = special[0]
+    elif not works and HANDHELD.search(low) and not re.search(r"\bip\b|ip-|сетев|poe", low):
+        kind = "ручная"  # ручная видеокамера (фотосъёмка, аккумулятор, карта памяти)
+    elif hits:
         kind = min(hits)[1]
     if kind is None and re.search(r"камер", low):
         kind = "камера"
-    if re.search(r"\bip\b|ip-|сетев", low):
+    if re.search(r"\bip\b|ip-|сетев|цифров", low):  # «цифровая камера» в госзакупках = IP
         tech = "ip"
     elif re.search(r"\bahd\b|hdcvi|hd-?tvi|аналогов(?:ая|ые|ую|ой|ых)", low):
         tech = "analog"
     else:
         tech = None
-    return {"kind": kind, "tech": tech, "mp_min": lot_mp(low)}
+    return {"kind": kind, "tech": tech, "mp_min": lot_mp(low), "ch_min": lot_channels(low),
+            "wifi_ok": bool(re.search(r"wi-?fi|беспровод", low))}
+
+
+def lot_channels(low):
+    """Требуемые каналы регистратора: «16-канальный», «16 каналов», «каналов … не менее 16»."""
+    vals = []
+    for m in re.finditer(r"(?<![\d.,])(\d{1,3})\s*-?\s*(?:х\s*)?канал", low):
+        ctx = low[max(0, m.start() - 25):m.start()]
+        if re.search(r"до\s*$|аудио|тревож|звук", ctx):
+            continue
+        vals.append(int(m.group(1)))
+    for m in re.finditer(r"канал\w*(?:\s+подключения)?\s+(?:ip-?)?(?:видео)?камер\w*[^.;\d]{0,20}?не менее\s*(\d{1,3})", low):
+        vals.append(int(m.group(1)))
+    vals = [v for v in vals if 1 <= v <= 256]
+    return max(vals) if vals else None
+
+
+def product_channels(name):
+    n = (name or "").upper()
+    m = re.search(r"(\d{1,3})\s*-?\s*КАНАЛ", n)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"DS-7\d(\d\d)", n) or re.search(r"(?:NVR|XVR|DVR)-?\d{0,2}?(\d\d)(?:[A-Z-]|$)", n) \
+        or re.search(r"TC-R3\d(\d\d)\b", n)
+    return int(m.group(1)) if m else None
 
 
 RES_MP = {"1920": 2, "2560": 4, "2688": 4, "2592": 5, "2880": 5, "3072": 6, "3200": 6, "3840": 8}
@@ -65,6 +104,8 @@ def lot_mp(low):
     """Требуемые Мп: явные «4 Мп / 4MP / 4.0МР» или разрешение «2560×1440». Берём максимум."""
     vals = []
     for m in re.finditer(r"(?<![\d.,])(\d{1,2}(?:[.,]\d)?)\s*(?:mp|мп|мр|mр|мегапикс|mpx)", low):
+        if re.search(r"фото", low[max(0, m.start() - 60):m.start()]):
+            continue  # разрешение фотосъёмки
         if re.search(r"до\s*$", low[max(0, m.start() - 6):m.start()]):
             continue  # «разрешением до 8Мп» — про регистратор, не требование
         if low[m.end():m.end() + 2].strip().startswith("/") or low[max(0, m.start() - 2):m.start()].strip().endswith("/"):
@@ -167,7 +208,7 @@ def type_analog(req):
     if not cats:
         return None, "дерево категорий поставщика ещё загружается"
     kind = req["kind"]
-    if kind in (None, "авто", "веб"):
+    if kind in (None, "авто", "веб", "ручная"):
         return None, f"нет подходящей категории у поставщика для типа «{kind or 'не определён'}»"
     ids = set()
     for k, c in cats.items():
@@ -176,7 +217,7 @@ def type_analog(req):
             ok = "камер" in name
         else:
             ok = bool(re.search(CAT_RULES.get(kind, kind), name))
-        if not ok:
+        if not ok or (kind != "портатив" and SPECIAL_CAT.search(name)):
             continue
         # IP или аналог — смотрим на название категории и её предков
         chain = name + " " + " ".join((cats.get(str(p)) or {}).get("NAME", "").lower() for p in _ancestors(cats, k))
@@ -190,15 +231,24 @@ def type_analog(req):
     rows = store.q(f"SELECT * FROM supplier_products WHERE category IN ({','.join('?' * len(ids))})", list(ids))
     cand = []
     for r in rows:
+        if not req.get("wifi_ok") and CONSUMER.search(r["name"] or ""):
+            continue  # бытовые Wi-Fi камеры — только если лот сам про Wi-Fi
         o = supplier.row_out(r, "аналог по типу", 0)
-        if req["mp_min"]:
+        if kind == "регистратор":
+            if req.get("ch_min"):
+                ch = product_channels(r["name"])
+                if ch is None or ch < req["ch_min"]:
+                    continue
+        elif req["mp_min"]:
             mp = product_mp(r["name"], r["brand"])
             if mp is None or mp < req["mp_min"]:
                 continue
         cand.append(o)
     best = cheapest(cand)
     if best is None:
-        return None, "нет аналога нужного типа" + (f" от {req['mp_min']:g} Мп" if req["mp_min"] else "") + " с ценой"
+        need = (f" от {req['ch_min']} каналов" if kind == "регистратор" and req.get("ch_min")
+                else f" от {req['mp_min']:g} Мп" if req["mp_min"] and kind != "регистратор" else "")
+        return None, f"нет аналога нужного типа{need} с ценой"
     return best, None
 
 
@@ -242,7 +292,7 @@ def autopick(lot, spec):
     raw = (spec or {}).get("raw") or (spec or {}).get("desc") or ""
     text = " ".join(filter(None, [lot["name"], lot["short"], lot["announcement"], raw]))
     works = cat in ("монтаж", "ремонт")
-    req = lot_requirements(" ".join(filter(None, [lot["short"], russian_part((spec or {}).get("desc") or raw)])), works)
+    req = lot_requirements(" ".join(filter(None, [lot["name"], lot["short"], russian_part((spec or {}).get("desc") or raw)])), works)
     notes = []
 
     if works:
@@ -281,7 +331,9 @@ def autopick(lot, spec):
             notes.append(f"не хватает на складе: {it['name']} — есть {it['stock']} из {it['qty']:g}")
         if it["cost_src"] != "платина":
             notes.append(f"{it['name']}: {it['cost_src']}")
-    if req.get("mp_min") and req.get("kind") not in ("регистратор",):
+    if req.get("kind") == "регистратор" and req.get("ch_min"):
+        notes.append(f"требование лота: от {req['ch_min']} каналов")
+    elif req.get("mp_min"):
         notes.append(f"требование лота: от {req['mp_min']:g} Мп")
     result.update(tier=result["items"][0]["tier"], notes=notes, req=req)
     return result
