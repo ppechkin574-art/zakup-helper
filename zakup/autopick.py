@@ -322,12 +322,13 @@ def autopick(lot, spec):
                     notes.append(f"камер в тексте ТЗ {text_cams}, но {why}")
             elif text_cams and cams != text_cams:
                 notes.append(f"в таблице {cams} камер, в тексте ТЗ {text_cams} — взята таблица")
-            if not items:
+            if not [i for i in items if not i.get("manual")]:
                 return {"ok": False, "reason": "в таблице ТЗ ничего не подобралось у поставщика",
                         "unmatched": b["unmatched"], "req": req}
-            notes.append(f"смета по таблице ТЗ: {len(b['items'])} поз. подобрано из {b['rows']}")
+            found = [i for i in b["items"] if not i.get("manual")]
+            notes.append(f"смета по таблице ТЗ: {len(found)} поз. подобрано из {b['rows']}")
             for u in b["unmatched"]:
-                notes.append(f"не подобрано (не в расчёте): {u}")
+                notes.append(f"нет у поставщика — впишите цену: {u}")
             if b["works"]:
                 notes.append("работы из ТЗ отдельно не считаются — только ставка за камеру")
             result = {"ok": True, "items": items, "cams": cams, "rough": bool(b["unmatched"]),
@@ -359,6 +360,8 @@ def autopick(lot, spec):
         result = {"ok": True, "items": [item_of(p, qty, tier)], "rough": tier != "точная модель"}
 
     for it in result["items"]:
+        if it.get("manual"):
+            continue
         if it["stock"] < it["qty"]:
             notes.append(f"не хватает на складе: {it['name']} — есть {it['stock']} из {it['qty']:g}")
         if it["cost_src"] != "платина":
@@ -367,5 +370,5 @@ def autopick(lot, spec):
         notes.append(f"требование лота: от {req['ch_min']} каналов")
     elif req.get("mp_min"):
         notes.append(f"требование лота: от {req['mp_min']:g} Мп")
-    result.update(tier=result["items"][0]["tier"], notes=notes, req=req)
+    result.update(tier=next((i["tier"] for i in result["items"] if not i.get("manual")), result["items"][0]["tier"]), notes=notes, req=req)
     return result

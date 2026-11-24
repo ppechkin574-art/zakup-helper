@@ -157,6 +157,24 @@ def cheapest_in(ids, ok=lambda r: True, name_rx=None):
     return supplier.row_out(best[1], "по таблице ТЗ", 0) if best else None
 
 
+def nearest_channel(ids, a, b):
+    """Кабель-канал нужного размера нет — самый маленький из тех, что не меньше по обеим сторонам, затем дешевле."""
+    need = sorted((a, b))
+    best = None
+    for r in store.q(f"SELECT * FROM supplier_products WHERE category IN ({','.join('?' * len(ids))})", list(ids)):
+        m = re.search(r"(\d{2,3})\s*[*xх×]\s*(\d{2,3})", r["name"] or "")
+        cost = supplier.cost_of(dict(r))
+        if not m or not cost:
+            continue
+        have = sorted((int(m.group(1)), int(m.group(2))))
+        if have[0] < need[0] or have[1] < need[1]:
+            continue
+        key = (have[0] * have[1], r["quantity"] <= 0, cost)
+        if best is None or key < best[0]:
+            best = (key, r)
+    return supplier.row_out(best[1], "по таблице ТЗ", 0) if best else None
+
+
 def _need(rx, text, cast=float):
     m = re.search(rx, text, re.I)
     return cast(m.group(1).replace(",", ".")) if m else None
@@ -213,7 +231,7 @@ def match_item(it, lot_text):
         outdoor = bool(re.search(r"уличн|наружн|outdoor|\bpe\b", low))
         shield = bool(re.search(r"\bf/?ftp|\bs/?ftp|\bftp|экранир", name.lower())) and "u/utp" not in name.lower()
         pairs4 = bool(re.search(r"4\s*[*xх×]\s*2|4\s*пар|4\s*pr", low))
-        ids = cat_ids(r"^utp$|витая")
+        ids = cat_ids(r"^utp$|^ftp$|витая")  # экранированный кабель у поставщика в разделе «FTP»
 
         def ok(r):
             n = (r["name"] or "").lower()
@@ -223,9 +241,9 @@ def match_item(it, lot_text):
                 return False
             if not cat6 and not re.search(r"cat\.?\s*5e|кат\.?\s*5e|5e", n):
                 return False
-            if outdoor and not re.search(r"\bpe\b|outdoor|наруж|уличн", n):
+            if outdoor and not re.search(r"\bpe\d?\b|outdoor|наруж|уличн", n):
                 return False
-            if shield and not re.search(r"ftp|экран", n):
+            if shield and not re.search(r"ftp|[fs]/utp|экран", n):
                 return False
             if pairs4 and not re.search(r"4\s*pr|4\s*[xх×*]\s*2|4\s*пар", n):
                 return False
@@ -237,9 +255,16 @@ def match_item(it, lot_text):
         return p, "кабель", why + " · цена за метр"
     if re.search(r"кабель.?канал|кабельный канал", low):
         size = re.search(r"(\d{2,3})\s*[*xх×]\s*(\d{2,3})", low)
-        rx = rf"{size.group(1)}\s*[*xх×]\s*{size.group(2)}" if size else None
-        p = cheapest_in(cat_ids(r"^кабель канал"), name_rx=rx) if rx else cheapest_in(cat_ids(r"^кабель канал"))
-        return p, "кабель-канал", f"{size.group(1)}×{size.group(2)}" if size else ""
+        ids = cat_ids(r"^кабель канал")
+        if not size:
+            return cheapest_in(ids), "кабель-канал", ""
+        a, b = int(size.group(1)), int(size.group(2))
+        rx = rf"(?<!\d){a}\s*[*xх×]\s*{b}(?!\d)|(?<!\d){b}\s*[*xх×]\s*{a}(?!\d)"
+        p = cheapest_in(ids, name_rx=rx)
+        if p:
+            return p, "кабель-канал", f"{a}×{b}"
+        p = nearest_channel(ids, a, b)
+        return p, "кабель-канал", f"{a}×{b} нет — ближайший больший" if p else f"{a}×{b}"
     if re.search(r"коробк", name, re.I):
         for_cam = bool(re.search(r"камер", low))
         p = cheapest_in(cat_ids(r"монтажные коробки для видеокамер" if for_cam else r"^коробки (монтажные|распаячные)"),
@@ -260,6 +285,18 @@ def match_item(it, lot_text):
         return p, "шкаф", f"от {u}U" if u else ""
     if re.search(r"кронштейн", name, re.I):
         return cheapest_in(cat_ids(r"кронштейны для видеокамер")), "кронштейн", ""
+    if re.search(r"коаксиал|\bквк|комбинированн\w* кабел|\brg-?(?:59|6)\b", low) and re.search(r"кабел|квк|rg", name, re.I):
+        with_power = bool(re.search(r"питани|квк|комбинир|\d\s*[xх×*]\s*0[.,]\d", low))
+        s = re.search(r"\d\s*[xх×*]\s*(0[.,]\d{1,2})", low)
+        sect = s.group(1).replace(".", ",") if s else None
+        if with_power:
+            ids = cat_ids(r"комбинированные кабел")
+            p = (cheapest_in(ids, name_rx=rf"{re.escape(sect)}|{re.escape(sect.replace(',', '.'))}") if sect else None) or cheapest_in(ids)
+            return p, "кабель с питанием", (f"видео + питание {sect} мм²" if sect else "видео + питание") + " · цена за метр"
+        p = cheapest_in(set(), name_rx=r"\brg-?(?:59|6)")
+        return p, "коаксиальный кабель", "цена за метр"
+    if re.search(r"\bbnc\b", low) and re.search(r"раз[ъь]|коннект|штекер", low):
+        return cheapest_in(cat_ids(r"^коннектор"), name_rx=r"\bBNC\b"), "разъём BNC", ""
     sec = re.search(r"(\d)\s*[xх×*]\s*(\d+(?:[.,]\d+)?)", name)
     if re.search(r"ввг|швв|пвс|ппв|силов|кабель питан|кввг", name, re.I) and sec:
         brand = re.search(r"ввг\w*|швв\w*|пвс|ппв|кввг", name, re.I)
@@ -303,7 +340,12 @@ def build(tables, lot_text):
             works.append(it["name"])
             continue
         if p is None:
+            # у поставщика нет — строка остаётся в смете, цену вписывает владелец (docs/ECONOMICS.md, 2.4)
             unmatched.append(f"{it['name']} — {it['qty']:g} {it['unit']} ({why})")
+            items.append({"article": None, "name": it["name"], "cost": None, "cost_src": "впишите цену",
+                          "manual": True, "is_camera": False, "qty": it["qty"], "stock": None,
+                          "tier": "нет у поставщика" + (f": {why}" if why and why != "не знаю, как подобрать" else ""),
+                          "src": f"{it['name']} — {it['qty']:g} {it['unit']}"})
             continue
         qty = it["qty"]
         items.append({"article": p["article"], "name": p["name"], "cost": p["cost"], "cost_src": p["cost_src"],
