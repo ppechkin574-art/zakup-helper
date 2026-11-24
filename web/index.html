@@ -182,6 +182,9 @@ main{position:relative}
 button.done{background:var(--goodbg);color:var(--good)}
 .alts{background:#FAFAFC}.alts .pc{border-top:1px solid var(--line)}
 .forline{display:flex;gap:8px;align-items:center;background:var(--sel);border-radius:10px;padding:6px 10px;font-size:13px;margin-bottom:6px}.forline button{margin-left:auto;padding:3px 8px}
+.urgent-bar{width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:var(--badbg);color:var(--bad);border-radius:12px;padding:10px 14px;margin:0 0 10px;font-weight:400}
+.urgent-bar:hover{background:#FFD5D9}.urgent-bar .ic{width:1.4em;height:1.4em;flex:none}.urgent-bar span:nth-child(2){flex:1;color:#3A3A3C}.urgent-bar b{color:var(--bad)}
+.urgent-bar .act{font-weight:600;white-space:nowrap}.urgent-bar.on{box-shadow:inset 0 0 0 2px var(--bad)}
 .ghead{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin:10px 2px 0}
 .ghead:first-child{margin-top:0}.ghead span:last-child{margin-left:auto;font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut)}
 .ghead.g-good{color:var(--good)}.ghead.g-warn{color:var(--warn)}.ghead.g-bad{color:var(--bad)}.ghead.g-manual{color:#3A3A3C}
@@ -210,6 +213,7 @@ button.done{background:var(--goodbg);color:var(--good)}
   <div id="list">
     <div class="sortbar"><span class="mut small">Сортировка</span>
       <div class="seg" id="sortSeg"><button data-k="end" class="on"><span data-ic="hourglass"></span>Срок</button><button data-k="price"><span data-ic="wallet-money"></span>Сумма</button><button data-k="verdict"><span data-ic="graph-up"></span>Выгода</button></div></div>
+    <div id="urgent"></div>
     <div id="tb"></div>
   </div>
   <div id="detail"><p class="mut">Выберите лот слева.</p></div>
@@ -230,7 +234,7 @@ const DEF={tax:'simple',vat:0.16,kpn:0.20,simple:0.04,target:0.15,warnFrom:0.05,
 // монтаж под ключ за камеру: ставка зависит от числа камер на объекте и применяется ко всем камерам
 function instRate(n){return n>S.instT2?S.inst3:n>S.instT1?S.inst2:S.inst1}
 function instTier(n){return n>S.instT2?`от ${S.instT2+1} камер`:n>S.instT1?`${S.instT1+1}–${S.instT2} камер`:`до ${S.instT1} камер`}
-let S=Object.assign({},DEF), LOTS=[], CUR=null, sortK='end', sortDir=1;
+let URG=false, S=Object.assign({},DEF), LOTS=[], CUR=null, sortK='end', sortDir=1;
 
 async function api(p,body){const r=await fetch(p,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});return r.json()}
 
@@ -340,6 +344,12 @@ function render(){
     <div class="nums"><div><div class="k">${ic('wallet-money')}Сумма лота</div><div class="sum">${fmt(l.price)} ₸</div></div>
       <div><div class="k">${ic('graph-up')}Прибыль${v==='manual'&&r.verdict?' (черновик)':''}</div><div class="sum" style="color:${['good','warn','bad'].includes(v)?`var(--${v})`:'var(--mut)'}">${r.verdict?fmt(r.net)+' ₸':'—'}</div></div></div>
   </div>`};
+  // плашка «срок истекает»: выгодные и «на грани», до конца приёма меньше суток
+  const soon=l=>{const ms=new Date(l.end)-Date.now();return ms>0&&ms<864e5&&['good','warn'].includes(l._grp.g)};
+  const U=L.filter(soon);if(!U.length)URG=false;
+  $('#urgent').innerHTML=U.length?`<button class="urgent-bar ${URG?'on':''}" id="urgBtn">${ic('clock-circle')}<span><b>До конца приёма меньше суток: ${U.length} ${U.length===1?'выгодный лот':U.length<5?'выгодных лота':'выгодных лотов'}</b> на ${fmt(U.reduce((s,l)=>s+l.price,0))} ₸</span><span class="act">${URG?'Показать все':'Показать'}</span></button>`:'';
+  if($('#urgBtn'))$('#urgBtn').onclick=()=>{URG=!URG;render()};
+  if(URG)L=U;
   const by=g=>L.filter(l=>l._grp.g===g);
   $('#tb').innerHTML=cat==='шум'?L.map(tile).join(''):GROUPS.map(([g,title,icon])=>{const A=by(g);return A.length?`<div class="ghead g-${g}">${ic(icon)}${title}<span>${A.length} · ${fmt(A.reduce((s,l)=>s+l.price,0))} ₸</span></div>${A.map(tile).join('')}`:''}).join('');
   $('#stat').textContent=`${L.length} лотов на ${fmt(L.reduce((s,l)=>s+l.price,0))} ₸`;
