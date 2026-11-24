@@ -66,7 +66,7 @@ a{color:var(--acc)}
 const $=s=>document.querySelector(s);
 const fmt=n=>n==null||isNaN(n)?'—':Math.round(n).toLocaleString('ru-RU');
 const pct=n=>n==null||isNaN(n)?'—':(n*100).toFixed(1)+'%';
-const DEF={tax:'our',vat:0.16,kpn:0.20,simple:0.04,target:0.15,bidSec:0.01,perfSec:0.03,logistics:0.03};
+const DEF={tax:'our',vat:0.16,kpn:0.20,simple:0.04,target:0.15,bidSec:0.01,perfSec:0.03,logistics:0.03,installPerCam:20000,bin:''};
 let S=Object.assign({},DEF), LOTS=[], CUR=null, sortK='end', sortDir=1;
 
 async function api(p,body){const r=await fetch(p,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});return r.json()}
@@ -76,13 +76,22 @@ function endLabel(end){const d=daysLeft(end);const t=new Date(end).toLocaleStrin
   return `${t}<div class="small ${d<1?'':'mut'}" style="${d<1?'color:var(--bad)':''}">${d<1?Math.max(0,Math.round(d*24))+' ч':Math.floor(d)+' дн'}</div>`}
 
 // ---------- расчёт ----------
+// сколько камер монтировать: только если лот с монтажом; из позиций сметы, иначе кол-во по лоту
+function defaultCams(l,items){
+  if(!l.install)return 0;
+  const fromItems=(items||[]).filter(i=>i.is_camera).reduce((a,i)=>a+(+i.qty||0),0);
+  if(fromItems)return fromItems;
+  return /камер/i.test(l.name||'')?(l.qty||l.qty_api||0):0;
+}
 function defaultBid(l){const d=l.median_discount;return l.price*(1-(d!=null&&d>0?d:0.10))}
 function compute(l,c){
   c=c||{};const bid=+c.bid||defaultBid(l);
   const qty=+c.qty||l.qty||l.qty_api||1;
   const items=c.items||[];
   const equip=items.length?items.reduce((a,i)=>a+(+i.cost||0)*(+i.qty||0),0):(+c.unitCost||0)*qty; // закупка (с НДС поставщика)
-  const other=(+c.materials||0)+(+c.labor||0)+(+c.otherCost||0);
+  const cams=c.cams!=null&&c.cams!==''?+c.cams:defaultCams(l,items);
+  const labor=c.labor!=null&&c.labor!==''?+c.labor:cams*S.installPerCam;
+  const other=(+c.materials||0)+labor+(+c.otherCost||0);
   const logi=c.logistics!=null&&c.logistics!==''?+c.logistics:equip*S.logistics;
   const supVat=c.supVat!==false;
   let net,tax,revNet,costNet;
@@ -101,7 +110,7 @@ function compute(l,c){
   const needCash=equip+other+logi+bid*(S.bidSec+S.perfSec);
   const known=equip>0||other>0;
   const verdict=!known?null:margin>=S.target?'good':margin>=0.05?'warn':'bad';
-  return {bid,qty,equip,other,logi,tax,net,margin,minBid,needCash,verdict,costNet,revNet}
+  return {cams,labor,bid,qty,equip,other,logi,tax,net,margin,minBid,needCash,verdict,costNet,revNet}
 }
 const VLAB={good:'выгодно',warn:'на грани',bad:'невыгодно'};
 
@@ -155,7 +164,8 @@ async function open(id){
       <span>Закупка за ед., ₸ <span class="small mut">(если не выбраны позиции ниже)</span></span><input type="number" id="c_unitCost" value="${c.unitCost||''}" placeholder="0">
       <span class="small"><label><input type="checkbox" id="c_supVat" ${c.supVat!==false?'checked':''}> поставщик с НДС</label></span><span></span>
       <span>Материалы (кабель, крепёж…), ₸</span><input type="number" id="c_materials" value="${c.materials||''}" placeholder="0">
-      <span>Работы / монтаж, ₸</span><input type="number" id="c_labor" value="${c.labor||''}" placeholder="0">
+      <span>Камер к монтажу <span class="small mut">(${l.install?'лот с монтажом':'лот без монтажа'}; пусто = авто)</span></span><input type="number" id="c_cams" value="${c.cams??''}" placeholder="авто">
+      <span>Работы / монтаж, ₸ <span class="small mut">(пусто = камеры × ${fmt(S.installPerCam)})</span></span><input type="number" id="c_labor" value="${c.labor??''}" placeholder="авто">
       <span>Логистика, ₸ <span class="small mut">(пусто = ${pct(S.logistics)} от оборудования)</span></span><input type="number" id="c_logistics" value="${c.logistics??''}" placeholder="авто">
       <span>Прочее (командировки, проект), ₸</span><input type="number" id="c_otherCost" value="${c.otherCost||''}" placeholder="0">
       <span><b>Наша цена в заявке, ₸</b><div class="small mut">по умолчанию: сумма лота − типичная скидка победителей</div></span><input type="number" id="c_bid" value="${Math.round(c.bid||defaultBid(l))}">
@@ -172,7 +182,7 @@ async function open(id){
   <div class="card"><h3>Как такие лоты выигрывают (договоры за 6 мес.)</h3>${histHtml(h,l)}</div>
 
   <div class="card"><h3>Техническая спецификация</h3>${sp.desc?`<div class="spec">${esc(sp.desc)}</div>`:sp.error?`<span class="mut">Не удалось прочитать: ${esc(sp.error)}</span>`:'<span class="mut">Ещё загружается или нет файла.</span>'}</div>`;
-  ['qty','unitCost','materials','labor','logistics','otherCost','bid','supVat'].forEach(k=>$('#c_'+k).addEventListener('input',recalc));
+  ['qty','cams','unitCost','materials','labor','logistics','otherCost','bid','supVat'].forEach(k=>$('#c_'+k).addEventListener('input',recalc));
   recalc(true);renderItems();
   $('#supGo').onclick=()=>supSearch($('#supQ').value);$('#supQ').onkeydown=e=>{if(e.key==='Enter')supSearch($('#supQ').value)};
   const m=await api('/api/match/'+id);if(CUR.id!==id)return;
@@ -180,24 +190,24 @@ async function open(id){
 }
 let SUP=[];
 function supRender(list,note){SUP=list;const need=+$('#c_qty').value||1;
-  $('#sup').innerHTML=(note?`<div class="mut" style="margin-bottom:6px">${esc(note)}</div>`:'')+(list.length?`<table class="small"><tr><th></th><th>Товар</th><th class="num">Цена</th><th class="num">Остаток</th><th></th></tr>${list.map((p,i)=>`<tr>
+  $('#sup').innerHTML=(note?`<div class="mut" style="margin-bottom:6px">${esc(note)}</div>`:'')+(list.length?`<table class="small"><tr><th></th><th>Товар</th><th class="num">Платина</th><th class="num">Остаток</th><th></th></tr>${list.map((p,i)=>`<tr>
     <td>${p.image?`<img src="${p.image}" style="width:36px;height:36px;object-fit:contain;border-radius:6px;background:#fff">`:''}</td>
     <td><b>${esc(p.name)}</b><div class="mut">${esc(p.brand||'')} · арт. ${p.article} · ${esc(p.why)}</div></td>
-    <td class="num">${fmt(p.cost)}${p.price&&p.cost!==p.price?`<div class="mut">розн. ${fmt(p.price)}</div>`:''}</td>
+    <td class="num">${fmt(p.cost)}${p.cost_src!=='платина'?`<div style="color:var(--warn)">${esc(p.cost_src)}</div>`:p.price&&p.cost!==p.price?`<div class="mut">золото ${fmt(p.price)}</div>`:''}</td>
     <td class="num" style="color:${p.quantity>=need?'var(--good)':p.quantity>0?'var(--warn)':'var(--bad)'}">${p.quantity}</td>
     <td><button data-i="${i}">+ в расчёт</button></td></tr>`).join('')}</table>`:'<span class="mut">Ничего не найдено. Попробуйте поиск по модели.</span>');
-  $('#sup').querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{const p=SUP[+b.dataset.i];ITEMS.push({article:p.article,name:p.name,cost:p.cost,qty:+$('#c_qty').value||1,stock:p.quantity});renderItems();recalc()});
+  $('#sup').querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{const p=SUP[+b.dataset.i];ITEMS.push({article:p.article,name:p.name,cost:p.cost,cost_src:p.cost_src,is_camera:p.is_camera,qty:+$('#c_qty').value||1,stock:p.quantity});renderItems();recalc()});
 }
 async function supSearch(q){if(!q.trim())return;$('#sup').textContent='Ищу…';supRender(await api('/api/supplier/search?q='+encodeURIComponent(q)),'')}
 function renderItems(){
   $('#items').innerHTML=ITEMS.length?`<table class="small" style="margin-top:10px"><tr><th>Позиция поставщика</th><th class="num">Цена</th><th class="num" style="width:70px">Кол-во</th><th class="num">Сумма</th><th></th></tr>
-  ${ITEMS.map((x,i)=>`<tr><td>${esc(x.name)}${x.stock!=null&&x.stock<x.qty?` <span class="tag v-bad">на складе ${x.stock}</span>`:''}</td><td class="num">${fmt(x.cost)}</td>
+  ${ITEMS.map((x,i)=>`<tr><td>${esc(x.name)}${x.is_camera?' <span class="tag">камера</span>':''}${x.cost_src&&x.cost_src!=='платина'?` <span class="tag v-warn">${esc(x.cost_src)}</span>`:''}${x.stock!=null&&x.stock<x.qty?` <span class="tag v-bad">на складе ${x.stock}</span>`:''}</td><td class="num">${fmt(x.cost)}</td>
   <td><input type="number" data-q="${i}" value="${x.qty}"></td><td class="num">${fmt(x.cost*x.qty)}</td><td><button data-d="${i}">✕</button></td></tr>`).join('')}</table>`:'';
-  $('#items').querySelectorAll('input[data-q]').forEach(el=>el.oninput=()=>{ITEMS[+el.dataset.q].qty=+el.value;recalc();});
+  $('#items').querySelectorAll('input[data-q]').forEach(el=>{el.oninput=()=>{ITEMS[+el.dataset.q].qty=+el.value;recalc()};el.onchange=()=>renderItems()});
   $('#items').querySelectorAll('button[data-d]').forEach(b=>b.onclick=()=>{ITEMS.splice(+b.dataset.d,1);renderItems();recalc()});
 }
 let ITEMS=[];
-function readCalc(){const c={items:ITEMS};['qty','unitCost','materials','labor','logistics','otherCost','bid'].forEach(k=>{const v=$('#c_'+k).value;if(v!=='')c[k]=+v});c.supVat=$('#c_supVat').checked;return c}
+function readCalc(){const c={items:ITEMS};['qty','cams','unitCost','materials','labor','logistics','otherCost','bid'].forEach(k=>{const v=$('#c_'+k).value;if(v!=='')c[k]=+v});c.supVat=$('#c_supVat').checked;return c}
 let saveT;
 function recalc(first){
   const c=readCalc(),r=compute(CUR,c);
@@ -210,7 +220,7 @@ function recalc(first){
   <div class="kv small" style="margin-top:10px">
     <span class="mut">Режим</span><span>${S.tax==='our'?`НДС ${pct(S.vat)} + КПН ${pct(S.kpn)}`:`упрощёнка ${pct(S.simple)} с оборота`}</span>
     <span class="mut">Выручка без НДС</span><span>${fmt(r.revNet)} ₸</span>
-    <span class="mut">Расходы без НДС</span><span>${fmt(r.costNet)} ₸ (оборудование ${fmt(r.equip)}, логистика ${fmt(r.logi)}, прочее ${fmt(r.other)})</span>
+    <span class="mut">Расходы без НДС</span><span>${fmt(r.costNet)} ₸ (оборудование ${fmt(r.equip)}, логистика ${fmt(r.logi)}, монтаж ${fmt(r.labor)}${r.cams?` за ${r.cams} кам.`:''}, прочее ${fmt(r.other-r.labor)})</span>
     <span class="mut">Налог</span><span>${fmt(r.tax)} ₸</span>
     <span class="mut">Нужно денег на старте</span><span>${fmt(r.needCash)} ₸ <span class="mut">(закупка + обеспечения заявки ${pct(S.bidSec)} и договора ${pct(S.perfSec)})</span></span>
     ${CUR.dumping_price&&r.bid<CUR.dumping_price?`<span style="color:var(--bad)">Внимание</span><span style="color:var(--bad)">цена ниже порога демпинга ${fmt(CUR.dumping_price)} ₸</span>`:''}
@@ -241,11 +251,13 @@ function settings(){
     <span>Обеспечение заявки</span><input type="number" step="0.001" id="s_bidSec" value="${S.bidSec}">
     <span>Обеспечение исполнения договора</span><input type="number" step="0.001" id="s_perfSec" value="${S.perfSec}">
     <span>Логистика по умолчанию, доля от оборудования</span><input type="number" step="0.01" id="s_logistics" value="${S.logistics}">
+    <span>Монтаж одной камеры, ₸</span><input type="number" step="1000" id="s_installPerCam" value="${S.installPerCam}">
+    <span>БИН нашей компании <span class="small mut">(пока не используется)</span></span><input type="text" id="s_bin" value="${esc(S.bin||'')}" placeholder="12 цифр">
   </div>
   <p class="small mut">Доли вводятся как 0.16 = 16%. Ставки по Налоговому кодексу РК 2026 (НДС 16%, КПН 20%, упрощёнка 4%) — сверьте со своим бухгалтером: маслихат может менять ставку упрощёнки.</p>
   <button class="pri" id="s_save">Сохранить</button></div>`;
   document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{S.tax=b.dataset.t;settings()});
-  $('#s_save').onclick=async()=>{['vat','kpn','simple','target','bidSec','perfSec','logistics'].forEach(k=>S[k]=+$('#s_'+k).value);await api('/api/settings',S);render();$('#detail').innerHTML='<p class="mut">Сохранено.</p>'};
+  $('#s_save').onclick=async()=>{['vat','kpn','simple','target','bidSec','perfSec','logistics','installPerCam'].forEach(k=>S[k]=+$('#s_'+k).value);S.bin=$('#s_bin').value.trim();await api('/api/settings',S);render();$('#detail').innerHTML='<p class="mut">Сохранено.</p>'};
 }
 
 async function load(){

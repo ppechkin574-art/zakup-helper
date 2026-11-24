@@ -1,6 +1,7 @@
 """Помощник по госзакупкам: видеонаблюдение.  Запуск:  python3 server.py  → http://localhost:8765"""
 import datetime as dt
 import json
+import re
 import sys
 import threading
 import time
@@ -127,6 +128,9 @@ def lot_summary(row):
         "ann_number": lot.get("announcement_number"), "ann_ext": lot.get("announcement_external_id"),
         "lot_number": lot.get("lot_number"), "dumping_price": lot.get("dumping_price"),
         "median_discount": (hist or {}).get("median_discount"),
+        # нужен ли монтаж: работы/ремонт — да; поставка — если в спеке есть установка
+        "install": row["category"] in ("монтаж", "ремонт") or bool(
+            re.search(r"установк|монтаж", (spec.get("desc") or "") + " " + (lot.get("announcement_name_ru") or ""), re.I)),
         "calc": calc,
     }
 

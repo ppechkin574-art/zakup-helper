@@ -1,7 +1,8 @@
 """Поставщик keeper.kz: каталог, цены, остатки + сопоставление с техспекой лота.
 
 Лимиты API: 1 запрос / 3 с на токен (categories — 1 / 60 с), до 200 позиций за запрос.
-Наша закупочная цена = final_price (если > 0), иначе price (розница).
+Уровни цен на keeper.kz: final_price = «Платина» (наша закупочная), price = «Золото».
+Если платина «по запросу» (final_price = 0) — берём золото и помечаем.
 """
 import json
 import os
@@ -56,6 +57,17 @@ def call(path, params=None, min_gap=3.2):
 def cost_of(p):
     fp, rp = p.get("final_price") or 0, p.get("price") or 0
     return fp if fp > 0 else (rp if rp > 0 else None)
+
+
+def cost_src(p):
+    if (p.get("final_price") or 0) > 0:
+        return "платина"
+    if (p.get("price") or 0) > 0:
+        return "золото (платина по запросу)"
+    return "цена по запросу"
+
+
+CAMERA_RE = re.compile(r"камер|IPC|HAC|HFW|HDW|DS-2C|DS-2D|DS-2T|PTZ", re.I)
 
 
 # ---------- синхронизация ----------
@@ -185,7 +197,10 @@ def extract_models(text):
 
 
 def row_out(r, why, score):
-    return {"article": r["article"], "name": r["name"], "brand": r["brand"], "category": r["category"],
+    cats = (store.meta_get("supplier_categories") or {}).get("cats") or {}
+    cname = (cats.get(str(r["category"])) or {}).get("NAME", "")
+    return {"cost_src": cost_src(dict(r)), "category_name": cname,
+            "is_camera": bool(re.search(r"камер", cname, re.I) or CAMERA_RE.search(r["name"] or "")),"article": r["article"], "name": r["name"], "brand": r["brand"], "category": r["category"],
             "cost": cost_of(dict(r)), "price": r["price"], "final_price": r["final_price"],
             "quantity": r["quantity"], "image": r["image"], "why": why, "score": score}
 
