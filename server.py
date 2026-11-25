@@ -71,12 +71,25 @@ def refresh():
                 print("history", code, e)
         state["stage"] = "автоподбор"
         run_autopick()
+        state["stage"] = "выкладываю сайт"
+        publish_site()
         state["stage"] = "готово"
     except Exception as e:
         traceback.print_exc()
         state["error"] = str(e)
     finally:
         state["running"] = False
+
+
+def publish_site():
+    """Свежие данные — на сайт GitHub Pages (publish.py). Ошибка выкладки не мешает работе на Mac."""
+    try:
+        import publish
+        n = publish.publish()
+        store.meta_set("published", {"at": time.time(), "lots": n, "error": None})
+    except Exception as e:
+        print("сайт:", e)
+        store.meta_set("published", {"at": time.time(), "error": str(e)})
 
 
 sup_state = {"stage": "", "error": None}
@@ -249,7 +262,7 @@ def api_get(full):
     """GET /api/… → (код, тело, тип). Его же вызывает сборка сайта для GitHub Pages (build_static.py)."""
     p = full.split("?")[0]
     if p == "/api/status":
-        return (200, state | {"last": store.meta_get("last_refresh"), "supplier": sup_state | {
+        return (200, state | {"last": store.meta_get("last_refresh"), "published": store.meta_get("published"), "supplier": sup_state | {
             "catalog": store.meta_get("supplier_catalog"), "prices": store.meta_get("supplier_prices")}})
     if p == "/api/lots":
         now = utcnow().isoformat()

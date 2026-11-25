@@ -1,6 +1,6 @@
-"""Сборка сайта для GitHub Pages: обновляет данные и сохраняет всё, что страница берёт у сервера, в файлы site/.
+"""Сборка сайта для GitHub Pages: сохраняет всё, что страница берёт у сервера, в файлы site/.
 
-Запускается по расписанию на GitHub (.github/workflows/pages.yml), можно и вручную: python3 build_static.py
+Выкладывает publish.py с Mac (госпортал не отвечает серверам GitHub). Вручную: python3 build_static.py --no-update
 Ключ keeper.kz — из переменной KEEPER_TOKEN (на GitHub — секрет репозитория) или из .env.
 Что меняется на сайте по сравнению с локальной версией — docs/DEPLOY.md.
 """
@@ -92,6 +92,7 @@ def export():
     dump("data/catalog.json", cat)
     size = sum(f.stat().st_size for f in OUT.rglob("*") if f.is_file())
     log(f"сайт собран: {len(lots)} лотов, {len(articles)} списков замен, каталог {len(cat)}, {size / 1e6:.1f} МБ")
+    return lots
 
 
 if __name__ == "__main__":
