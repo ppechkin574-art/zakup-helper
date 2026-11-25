@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import server  # noqa: E402  (импорт не запускает сервер — только функции)
-from zakup import bom, supplier  # noqa: E402
+from zakup import bom, source, supplier  # noqa: E402
 
 
 def row(name, brand=""):
@@ -154,3 +154,20 @@ class TextGaps(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Noise(unittest.TestCase):
+    """Слова поиска «видеотрансляции», «системы безопасности» дают и чужие лоты — их в мусор."""
+    def lot(self, name):
+        return {"name_ru": name, "announcement_name_ru": name, "enstrus": []}
+
+    def test_simbase(self):
+        self.assertEqual(source.classify(self.lot(
+            "Услуги по технической поддержке «Информационной системы Комплекса услуг безопасности» "
+            "на базе лицензионного программного обеспечения SimBASE на 2027 год")), "шум")
+
+    def test_security_maintenance_kept(self):
+        self.assertEqual(source.classify(self.lot(
+            "Услуги по техническому обслуживанию комплексной инженерно-технической системы безопасности")), "ТО")
+        self.assertEqual(source.classify(self.lot(
+            "Услуги по техническому обслуживанию оборудования видеотрансляции оперативной обстановки")), "ТО")
